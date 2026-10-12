@@ -40,7 +40,7 @@ const std::vector<BusDef>& busDefs() {
       d.push_back({BusKind::Group, i, "grp/" + num(i + 1), "Grp " + pairName(1 + 2 * i), true});
     for (int i = 0; i < kMatrices; ++i)
       d.push_back({BusKind::Matrix, i, "mtx/" + num(i + 1), "Mtx " + pairName(1 + 2 * i), true});
-    for (int i = 0; i < kFxUnits; ++i)
+    for (int i = 0; i < kFxSends; ++i)
       d.push_back({BusKind::FxSend, i, "fx/" + num(i + 1), "FX " + num(i + 1), false});
     return d;
   }();
@@ -85,10 +85,10 @@ const std::vector<OutputSource>& outputSources() {
 }
 
 int defaultOutputSource(int physOut) {
-  // Out 1-2: LR, 3-12: Mix 1-10, 13-16: Matrix 1-4, 17-18: PAFL.
-  static const char* names[kPhysOutputs] = {"LR L",  "LR R",  "Mix 1", "Mix 2", "Mix 3", "Mix 4",
-                                            "Mix 5", "Mix 6", "Mix 7", "Mix 8", "Mix 9", "Mix 10",
-                                            "Mtx 1", "Mtx 2", "Mtx 3", "Mtx 4", "PAFL L", "PAFL R"};
+  // As the Qu-16's sockets: out 1-2 LR, 3-12 Mix 1-10, 13-14 Alt out (PAFL), 15-18 spare.
+  static const char* names[kPhysOutputs] = {"LR L",  "LR R",  "Mix 1", "Mix 2",  "Mix 3", "Mix 4",
+                                            "Mix 5", "Mix 6", "Mix 7", "Mix 8",  "Mix 9", "Mix 10",
+                                            "PAFL L", "PAFL R", "Off", "Off", "Off", "Off"};
   if (physOut < 0 || physOut >= kPhysOutputs) return 0;
   const auto& srcs = outputSources();
   for (size_t i = 0; i < srcs.size(); ++i)

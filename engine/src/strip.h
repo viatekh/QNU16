@@ -56,7 +56,7 @@ class ChannelDsp {
   Param *gateOn_ = nullptr, *gateThresh_ = nullptr, *gateRange_ = nullptr, *gateAttack_ = nullptr,
         *gateHold_ = nullptr, *gateRelease_ = nullptr;
   Param *eqOn_ = nullptr;
-  std::array<Param*, kEqBands> eqFreq_{}, eqGain_{}, eqQ_{};
+  std::array<Param*, kEqBands> eqFreq_{}, eqGain_{}, eqQ_{};  // eqQ_: width in octaves
   Param *eqLowType_ = nullptr, *eqHighType_ = nullptr;  // 0 = shelf, 1 = bell
   Param* geqOn_ = nullptr;
   std::array<Param*, kGeqBands> geqGain_{};

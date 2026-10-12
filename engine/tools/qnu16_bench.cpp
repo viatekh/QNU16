@@ -26,11 +26,11 @@ int main(int argc, char** argv) {
     if (in.kind != qnu::InputKind::FxReturn) {
       for (const char* t : {"/hpf/on", "/gate/on", "/comp/on", "/delay/on"}) set(b + t, 1);
       set(b + "/delay/time", 10);
-      for (int f = 1; f <= qnu::kFxUnits; ++f) set(b + "/fx/" + std::to_string(f) + "/level", -10);
+      for (int f = 1; f <= qnu::kFxSends; ++f) set(b + "/fx/" + std::to_string(f) + "/level", -10);
     }
     for (int k = 1; k <= qnu::kEqBands; ++k) set(b + "/eq/" + std::to_string(k) + "/gain", 3);
     for (int m = 1; m <= qnu::kMixes; ++m) set(b + "/mix/" + std::to_string(m) + "/level", -6);
-    set(b + "/grp/1", 1);
+    if (qnu::kGroups > 0) set(b + "/grp/1", 1);
   }
   for (const auto& bus : qnu::busDefs()) {
     if (bus.kind == qnu::BusKind::FxSend || bus.kind == qnu::BusKind::Group) continue;
@@ -40,7 +40,10 @@ int main(int argc, char** argv) {
     set(bus.id + "/delay/on", 1);
     set(bus.id + "/delay/time", 5);
   }
-  for (int x = 1; x <= qnu::kMatrices; ++x) set("mtx/" + std::to_string(x) + "/lr", -6);
+  for (int f = qnu::kFxSends + 1; f <= qnu::kFxUnits; ++f) set("fx/" + std::to_string(f) + "/src", f);
+  set("gen/on", 1);
+  set("gen/type", 2);
+  set("gen/mix/1", 1);
   mixer.prepare(rate);
 
   std::vector<std::vector<float>> in(qnu::kPhysInputs, std::vector<float>(block));

@@ -1,11 +1,13 @@
 #pragma once
 
-// Fixed console topology, modelled on a Qu-16:
+// Fixed console topology, matching the Qu-16:
 //   inputs : 16 mono channels, 3 stereo channels (ST1-3), 4 stereo FX returns
-//   buses  : LR, Mix 1-4 (mono), Mix 5-6/7-8/9-10 (stereo), Groups 1-2..7-8 (stereo),
-//            Matrix 1-2/3-4 (stereo), FX sends 1-4 (mono, feeding the internal FX engines)
+//   buses  : LR, Mix 1-4 (mono), Mix 5-6/7-8/9-10 (stereo), FX sends 1-2 (mono)
+//   FX     : 4 engines. FX1/FX2 are fed by their send buses; FX3/FX4 are fed by a mix
+//            chosen per engine (fx/N/src), as on the Qu-16.
 //   control: 4 DCAs, 4 mute groups
 //   I/O    : 22 physical inputs (ch 1-16, ST1-3 L/R), 18 patchable physical outputs
+// Groups and matrices (Qu-24/32 features) are supported by the engine but disabled here.
 
 #include <string>
 #include <vector>
@@ -19,9 +21,10 @@ constexpr int kInputStrips = kMonoInputs + kStereoInputs + kFxReturns;
 
 constexpr int kMixes = 7;  // Mix 1, 2, 3, 4, 5-6, 7-8, 9-10
 constexpr int kMonoMixes = 4;
-constexpr int kGroups = 4;
-constexpr int kMatrices = 2;
-constexpr int kFxUnits = 4;
+constexpr int kGroups = 0;    // Qu-16: none
+constexpr int kMatrices = 0;  // Qu-16: none
+constexpr int kFxUnits = 4;   // FX engines
+constexpr int kFxSends = 2;   // FX send buses (FX1, FX2)
 constexpr int kDcas = 4;
 constexpr int kMuteGroups = 4;
 constexpr int kEqBands = 4;
@@ -33,7 +36,7 @@ constexpr int kBusMix0 = 1;
 constexpr int kBusGrp0 = kBusMix0 + kMixes;
 constexpr int kBusMtx0 = kBusGrp0 + kGroups;
 constexpr int kBusFx0 = kBusMtx0 + kMatrices;
-constexpr int kBuses = kBusFx0 + kFxUnits;
+constexpr int kBuses = kBusFx0 + kFxSends;
 
 // Matrix sources: LR, every mix, every group.
 constexpr int kMatrixSources = 1 + kMixes + kGroups;

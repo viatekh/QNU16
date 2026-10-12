@@ -5,7 +5,13 @@ namespace qnu {
 namespace {
 
 const float kEqDefaultFreq[kEqBands] = {100.0f, 400.0f, 2500.0f, 8000.0f};
-const float kEqDefaultQ[kEqBands] = {0.707f, 1.0f, 1.0f, 0.707f};
+
+// Qu-style bell width in octaves (1.5 wide ... 1/9 narrow) to biquad Q.
+double widthToQ(double octaves) {
+  const double p = std::pow(2.0, octaves);
+  return std::sqrt(p) / (p - 1.0);
+}
+constexpr double kShelfQ = 0.7071;
 
 std::string n1(int i) { return std::to_string(i + 1); }
 
@@ -48,7 +54,7 @@ void ChannelDsp::init(ParamRegistry& reg, const std::string& prefix, unsigned se
       const std::string e = "eq/" + n1(k) + "/";
       eqFreq_[k] = num(e + "freq", 20, 20000, kEqDefaultFreq[k], "Hz");
       eqGain_[k] = num(e + "gain", -15, 15, 0, "dB");
-      eqQ_[k] = num(e + "q", 0.3f, 10, kEqDefaultQ[k], "");
+      eqQ_[k] = num(e + "width", 1.0f / 9.0f, 1.5f, 1.0f, "oct");
     }
     eqLowType_ = choice("eq/1/type", 2, 0);
     eqHighType_ = choice("eq/4/type", 2, 0);
@@ -65,7 +71,8 @@ void ChannelDsp::init(ParamRegistry& reg, const std::string& prefix, unsigned se
     compRelease_ = num("comp/release", 10, 2000, 100, "ms");
     compKnee_ = num("comp/knee", 0, 12, 6, "dB");
     compMakeup_ = num("comp/makeup", 0, 24, 0, "dB");
-    compMode_ = choice("comp/mode", 2, 0);
+    // 0 Manual Peak, 1 Manual RMS (default), 2 Slow Opto, 3 Punchbag.
+    compMode_ = choice("comp/mode", 4, Compressor::kRms);
   }
   if (sections & kDelay) {
     delayOn_ = tog("delay/on", false);
@@ -119,7 +126,8 @@ void ChannelDsp::updateCoefficients() {
         Biquad::Type t = Biquad::Type::Peak;
         if (k == 0 && v[kEqBands * 3] < 0.5f) t = Biquad::Type::LowShelf;
         if (k == kEqBands - 1 && v[kEqBands * 3 + 1] < 0.5f) t = Biquad::Type::HighShelf;
-        for (auto& side : eq_) side[k].set(t, fs_, v[k * 3], v[k * 3 + 1], v[k * 3 + 2]);
+        const double q = t == Biquad::Type::Peak ? widthToQ(v[k * 3 + 2]) : kShelfQ;
+        for (auto& side : eq_) side[k].set(t, fs_, v[k * 3], v[k * 3 + 1], q);
       }
       eqCache_ = v;
     }

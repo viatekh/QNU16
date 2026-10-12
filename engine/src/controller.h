@@ -28,6 +28,9 @@ class Controller {
   std::string metaMessage() const;   // "k\n<path> <min> <max> <def> <kind> [unit]..." for every param
   std::string stateMessage() const;  // "p ..." and "l ..." lines for every param/label
   std::string meterMessage();        // "m v,v,v,..."
+  std::string rtaMessage();          // "r v,...": 31 RTA bands (dBFS), 20 Hz - 20 kHz
+  std::string recorderMessage() const;  // "d <state> <mode> <seconds> <dropouts> <file>"
+  void setRecorder(Recorder* r) { recorder_ = r; }
   std::string sceneListMessage() const;
 
  private:
@@ -38,6 +41,7 @@ class Controller {
   Labels& labels_;
   SceneStore& scenes_;
   std::string backendName_;
+  Recorder* recorder_ = nullptr;
   std::string currentScene_;
 };
 

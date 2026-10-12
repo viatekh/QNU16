@@ -138,7 +138,15 @@ void ControlServer::run(const std::atomic<bool>& stop) {
                                [](const auto& c) { return c->websocket && !c->closing; });
       // Always drain meters so peaks don't accumulate while nobody is watching.
       const std::string meters = controller_.meterMessage();
-      if (anyWs) broadcast(meters);
+      const std::string rta = controller_.rtaMessage();
+      if (anyWs) {
+        broadcast(meters);
+        broadcast(rta);
+        // Recorder status: every tick while recording, and once more when it stops.
+        const std::string rec = controller_.recorderMessage();
+        if (rec != lastRecorder_) broadcast(rec);
+        lastRecorder_ = rec.rfind("d rec", 0) == 0 ? std::string() : rec;
+      }
     }
 
     // Try to flush immediately, then drop finished/broken clients.
@@ -242,6 +250,7 @@ void ControlServer::handleHttp(Client& c) {
     sendText(c, controller_.metaMessage());
     sendText(c, controller_.stateMessage());
     sendText(c, controller_.sceneListMessage());
+    sendText(c, controller_.recorderMessage());
     if (!c.inBuf.empty()) handleWsData(c);
     return;
   }

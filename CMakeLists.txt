@@ -18,6 +18,7 @@ add_library(qnucore STATIC
   engine/src/strip.cpp
   engine/src/fx.cpp
   engine/src/mixer.cpp
+  engine/src/recorder.cpp
   engine/src/scene.cpp
   engine/src/controller.cpp
   engine/src/wav.cpp
@@ -54,7 +55,7 @@ add_executable(qnu16-bench engine/tools/qnu16_bench.cpp)
 target_link_libraries(qnu16-bench PRIVATE qnucore)
 
 enable_testing()
-add_executable(qnu16-tests tests/test_main.cpp tests/test_dsp.cpp tests/test_mixer.cpp tests/test_fx.cpp tests/test_control.cpp)
+add_executable(qnu16-tests tests/test_main.cpp tests/test_dsp.cpp tests/test_mixer.cpp tests/test_fx.cpp tests/test_qu.cpp tests/test_control.cpp)
 target_link_libraries(qnu16-tests PRIVATE qnucore)
 add_test(NAME qnu16-tests COMMAND qnu16-tests WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
 

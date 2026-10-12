@@ -50,6 +50,7 @@ class ControlServer {
   int listenFd_ = -1;
   int port_ = 0;
   std::vector<std::unique_ptr<Client>> clients_;
+  std::string lastRecorder_;
 };
 
 }  // namespace qnu

@@ -102,6 +102,27 @@ void Controller::handleLine(const std::string& line, Reply* reply) {
     } else {
       reply->toSender.push_back("e unknown scene command");
     }
+  } else if (cmd == "rec") {
+    std::string sub;
+    in >> sub;
+    if (!recorder_) {
+      reply->toSender.push_back("e recording is not available");
+      return;
+    }
+    std::string err;
+    if (sub == "multi" || sub == "stereo") {
+      if (!recorder_->start(sub == "multi" ? Recorder::kMultitrack : Recorder::kStereo,
+                            mixer_.sampleRate(), &err)) {
+        reply->toSender.push_back("e " + err);
+        return;
+      }
+    } else if (sub == "stop") {
+      recorder_->stop();
+    } else {
+      reply->toSender.push_back("e unknown rec command");
+      return;
+    }
+    reply->broadcast.push_back(recorderMessage());
   } else {
     reply->toSender.push_back("e unknown command " + cmd);
   }
@@ -179,6 +200,25 @@ std::string Controller::meterMessage() {
   appendDb(&out, s.paflLDb); out += ',';
   appendDb(&out, s.paflRDb);
   return out;
+}
+
+std::string Controller::rtaMessage() {
+  const auto bands = mixer_.takeRta();
+  std::string out = "r ";
+  for (size_t k = 0; k < bands.size(); ++k) {
+    if (k) out += ',';
+    appendDb(&out, bands[k]);
+  }
+  return out;
+}
+
+std::string Controller::recorderMessage() const {
+  if (!recorder_) return "d none";
+  char buf[64];
+  std::snprintf(buf, sizeof(buf), "d %s %s %.1f %u ", recorder_->recording() ? "rec" : "stop",
+                recorder_->mode() == Recorder::kMultitrack ? "multi" : "stereo", recorder_->seconds(),
+                recorder_->dropouts());
+  return buf + recorder_->file();
 }
 
 std::string Controller::sceneListMessage() const {

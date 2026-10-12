@@ -22,13 +22,14 @@ void usage() {
   std::printf(
       "usage: qnu16d [options]\n"
       "  --backend jack|dummy   audio backend (default: jack)\n"
-      "  --autoconnect          connect physical JACK ports (capture 1-16, playback 1-8)\n"
+      "  --autoconnect          connect physical JACK ports (capture 1-22, playback 1-18)\n"
       "  --client-name NAME     JACK client name (default: qnu16)\n"
       "  --port N               HTTP/WebSocket port (default: 8016)\n"
       "  --bind ADDR            bind address (default: 0.0.0.0)\n"
       "  --ui DIR               web UI directory (default: ui)\n"
       "  --scenes DIR           scene directory (default: scenes)\n"
-      "  --load NAME            load this scene at startup\n");
+      "  --load NAME            load this scene at startup\n"
+      "  --recordings DIR       where recordings are written (default: recordings)\n");
 }
 
 }  // namespace
@@ -37,6 +38,7 @@ int main(int argc, char** argv) {
   std::string backendName = "jack";
   std::string scenesDir = "scenes";
   std::string loadScene;
+  std::string recordingsDir = "recordings";
   qnu::JackOptions jackOpt;
   qnu::ControlServer::Options srvOpt;
 
@@ -57,6 +59,7 @@ int main(int argc, char** argv) {
     else if (a == "--ui") srvOpt.uiDir = next();
     else if (a == "--scenes") scenesDir = next();
     else if (a == "--load") loadScene = next();
+    else if (a == "--recordings") recordingsDir = next();
     else if (a == "-h" || a == "--help") { usage(); return 0; }
     else { std::fprintf(stderr, "unknown option %s\n", a.c_str()); usage(); return 2; }
   }
@@ -65,6 +68,8 @@ int main(int argc, char** argv) {
   qnu::Mixer mixer(registry);
   qnu::Labels labels(qnu::Mixer::labelKeys());
   qnu::SceneStore scenes(scenesDir);
+  qnu::Recorder recorder(recordingsDir);
+  mixer.setRecorder(&recorder);
 
   if (!loadScene.empty()) {
     std::string text, err;
@@ -96,6 +101,7 @@ int main(int argc, char** argv) {
   }
 
   qnu::Controller controller(mixer, registry, labels, scenes, backend->name());
+  controller.setRecorder(&recorder);
   qnu::ControlServer server(controller, srvOpt);
   if (!server.start(&err)) {
     std::fprintf(stderr, "control server failed: %s\n", err.c_str());
@@ -113,6 +119,7 @@ int main(int argc, char** argv) {
 
   server.run(g_stop);
   backend->stop();
+  recorder.stop();
   std::printf("QNU16 stopped\n");
   return 0;
 }

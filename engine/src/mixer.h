@@ -5,7 +5,9 @@
 #include <string>
 #include <vector>
 
+#include "dsp/rta.h"
 #include "fx.h"
+#include "recorder.h"
 #include "params.h"
 #include "strip.h"
 #include "topology.h"
@@ -39,6 +41,11 @@ class Mixer {
 
   // Control thread: peaks since the previous call.
   MeterSnapshot takeMeters();
+  // Control thread: RTA of the PAFL signal (31 bands, dBFS) since the previous call.
+  std::array<float, Rta::kBands> takeRta() { return rta_.take(); }
+
+  // Optional recorder (set before audio starts). The mixer feeds it every block.
+  void setRecorder(Recorder* r) { recorder_ = r; }
 
   // Label keys: every input and bus id, plus dca/N and mg/N.
   static std::vector<std::string> labelKeys();
@@ -52,15 +59,15 @@ class Mixer {
     InputDef def;
     ChannelDsp dsp;
     Param *pan = nullptr, *fader = nullptr, *mute = nullptr, *pafl = nullptr, *lr = nullptr;
-    std::array<Param*, kMixes> mixLevel{}, mixPre{};
-    std::array<Param*, kFxUnits> fxLevel{}, fxPre{};  // null for FX returns
+    std::array<Param*, kMixes> mixLevel{}, mixPre{}, mixOn{};
+    std::array<Param*, kFxSends> fxLevel{}, fxPre{}, fxOn{};  // null for FX returns
     std::array<Param*, kGroups> grp{};
     std::array<Param*, kDcas> dca{};
     std::array<Param*, kMuteGroups> mg{};
 
     Send toLR;
     std::array<Send, kMixes> toMix;
-    std::array<Send, kFxUnits> toFx;
+    std::array<Send, kFxSends> toFx;
     std::array<Send, kGroups> toGrp;
     std::vector<float> l, r;
   };
@@ -88,9 +95,36 @@ class Mixer {
   std::vector<Bus> buses_;
   std::array<FxEngine, kFxUnits> fx_;
   std::array<std::vector<float>, kFxUnits> fxRetL_, fxRetR_;
+  // FX engines beyond the send buses take a mix as their source (one block late, since the
+  // mixes also receive the FX returns).
+  std::array<Param*, kFxUnits> fxSrc_{};
+  std::array<std::vector<float>, kFxUnits> fxMixFeed_;
   std::array<Param*, kDcas> dcaFader_{}, dcaMute_{};
   std::array<Param*, kMuteGroups> mgMute_{};
   std::array<Param*, kPhysOutputs> outSrc_{};
+
+  // Talkback and signal generator, injected into LR and the mixes.
+  struct Injector {
+    Param *on = nullptr, *lr = nullptr;
+    std::array<Param*, kMixes> mix{};
+    Ramp gain;
+  };
+  Injector talk_, gen_;
+  Param *talkSrc_ = nullptr, *talkGain_ = nullptr, *talkHpf_ = nullptr;
+  Param *genType_ = nullptr, *genFreq_ = nullptr, *genLevel_ = nullptr;
+  Biquad talkFilter_;
+  double genPhase_ = 0.0;
+  uint32_t genSeed_ = 22222;
+  std::array<float, 7> pink_{};
+  std::vector<float> talkBuf_, genBuf_;
+  void renderGenerator(int n);
+  void inject(Injector& inj, const float* src, float gain, int n);
+
+  Param* monLevel_ = nullptr;  // PAFL / headphone level
+  Ramp monGain_;
+  Rta rta_;
+  std::vector<float> rtaBuf_;
+  Recorder* recorder_ = nullptr;
 
   std::vector<float> paflL_, paflR_;
   std::vector<std::vector<float>> direct_;  // post-preamp copies of each physical input

@@ -61,11 +61,14 @@ class Gate {
   bool open_ = true;
 };
 
-// Feed-forward compressor: peak or RMS detector, attack/release envelope, soft-knee gain
-// computer, makeup gain. Stereo use is linked.
+// Feed-forward compressor, stereo-linked. Four types, as on the Qu:
+//   Manual Peak - peak detector, user attack/release/knee
+//   Manual RMS  - RMS detector, user attack/release/knee (default)
+//   Slow Opto   - automatic: RMS detector, slow attack, program-dependent release, soft knee
+//   Punchbag    - automatic: peak detector, fast attack and release, hard knee
 class Compressor {
  public:
-  enum Mode { kPeak = 0, kRms = 1 };
+  enum Mode { kPeak = 0, kRms = 1, kOpto = 2, kPunch = 3 };
 
   void setSampleRate(float sr) {
     sr_ = sr;
@@ -76,16 +79,27 @@ class Compressor {
                  float makeupDb, int mode = kPeak) {
     thresh_ = threshDb;
     slope_ = 1.0f / std::max(ratio, 1.0f) - 1.0f;
-    knee_ = std::max(kneeDb, 0.0f);
     makeup_ = makeupDb;
+    mode_ = mode;
+    if (mode == kOpto) {
+      attackMs = 25.0f;
+      releaseMs = 120.0f;  // fast stage; the slow stage is added in process()
+      kneeDb = 10.0f;
+    } else if (mode == kPunch) {
+      attackMs = 2.0f;
+      releaseMs = 70.0f;
+      kneeDb = 0.0f;
+    }
+    knee_ = std::max(kneeDb, 0.0f);
     atkCoef_ = timeToCoef(attackMs, sr_);
     relCoef_ = timeToCoef(releaseMs, sr_);
-    mode_ = mode;
+    slowRelCoef_ = timeToCoef(1500.0f, sr_);
   }
 
   void reset() {
     env_ = 0.0f;
     rms_ = 0.0f;
+    slowEnv_ = 0.0f;
     maxGr_ = 0.0f;
     gain_ = targetGain_ = dbToLin(makeup_);
     gainStep_ = 0.0f;
@@ -107,15 +121,22 @@ class Compressor {
   void process(float* l, float* r, int n) {
     for (int i = 0; i < n; ++i) {
       float a = r ? std::max(std::fabs(l[i]), std::fabs(r[i])) : std::fabs(l[i]);
-      if (mode_ == kRms) {
+      if (mode_ == kRms || mode_ == kOpto) {
         rms_ = a * a + (rms_ - a * a) * rmsCoef_;
         a = std::sqrt(rms_);
       }
       const float c = a > env_ ? atkCoef_ : relCoef_;
       env_ = a + (env_ - a) * c;
+      float det = env_;
+      if (mode_ == kOpto) {
+        // Two-stage release like an optical cell: the slow stage holds the gain down for
+        // longer after sustained compression.
+        slowEnv_ = a > slowEnv_ ? a + (slowEnv_ - a) * atkCoef_ : slowEnv_ * slowRelCoef_;
+        det = std::max(env_, slowEnv_ * 0.7f);
+      }
       if (--countdown_ <= 0) {
         countdown_ = kControlInterval;
-        const float gr = computeGainDb(linToDb(env_));
+        const float gr = computeGainDb(linToDb(det));
         maxGr_ = std::max(maxGr_, -gr);
         targetGain_ = dbToLin(gr + makeup_);
         gainStep_ = (targetGain_ - gain_) / kControlInterval;
@@ -137,10 +158,10 @@ class Compressor {
  private:
   float sr_ = 48000.0f;
   float thresh_ = 0.0f, slope_ = 0.0f, knee_ = 0.0f, makeup_ = 0.0f;
-  float atkCoef_ = 0.0f, relCoef_ = 0.0f, rmsCoef_ = 0.0f;
+  float atkCoef_ = 0.0f, relCoef_ = 0.0f, rmsCoef_ = 0.0f, slowRelCoef_ = 0.0f;
   static constexpr int kControlInterval = 8;
   int mode_ = kPeak;
-  float env_ = 0.0f, rms_ = 0.0f, maxGr_ = 0.0f;
+  float env_ = 0.0f, rms_ = 0.0f, maxGr_ = 0.0f, slowEnv_ = 0.0f;
   float gain_ = 1.0f, targetGain_ = 1.0f, gainStep_ = 0.0f;
   int countdown_ = 0;
 };

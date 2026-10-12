@@ -107,9 +107,10 @@ TEST(fx_send_to_return_path_through_mixer) {
   Mixer m(reg);
   m.prepare(kFs);
   reg.find("ch/1/lr")->set(0);           // dry signal off LR
-  reg.find("ch/1/fx/3/level")->set(0);   // FX3 = delay by default
-  reg.find("fx/3/dly/time")->set(50);
-  reg.find("fx/3/dly/pingpong")->set(0);
+  reg.find("ch/1/fx/2/level")->set(0);   // FX2 send bus -> FX2 engine
+  reg.find("fx/2/type")->set(FxEngine::kDelay);
+  reg.find("fx/2/dly/time")->set(50);
+  reg.find("fx/2/dly/pingpong")->set(0);
   const int n = 9600;
   const int t0 = 512;  // after the startup gain ramps have settled
   std::vector<float> in(n, 0.0f), outL(n, 0.0f);
@@ -117,7 +118,7 @@ TEST(fx_send_to_return_path_through_mixer) {
   const float* ip[kPhysInputs] = {in.data()};
   float* op[kPhysOutputs] = {outL.data()};
   m.process(ip, op, n);
-  // Echo at 50 ms through FX return 3 (unity fader, centre balance), nothing before it.
+  // Echo at 50 ms through FX return 2 (unity fader, centre balance), nothing before it.
   CHECK(peakOf(outL.data(), t0 + 2399) == 0.0f);
   CHECK(std::fabs(outL[t0 + 2400]) > 0.5f);
 }

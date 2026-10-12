@@ -13,7 +13,7 @@ constexpr double kFs = 48000.0;
 // Physical output indices with the default patch.
 constexpr int kOutL = 0, kOutR = 1;
 int outMix(int n) { return 1 + n; }  // Mix 1..10 -> out 3..12 (0-based 2..11)
-constexpr int kOutMtx1 = 12, kOutPaflL = 16, kOutPaflR = 17;
+constexpr int kOutPaflL = 12, kOutPaflR = 13;  // Alt out
 
 struct Rig {
   ParamRegistry reg;
@@ -60,33 +60,34 @@ constexpr float kCentre = 0.70711f;  // constant-power pan at centre
 
 TEST(topology_matches_qu16) {
   CHECK(inputDefs().size() == 23u);
-  CHECK(busDefs().size() == 18u);
+  CHECK(busDefs().size() == 10u);  // LR, 7 mixes, FX1, FX2
   CHECK(busDefs()[kBusMix0 + 4].name == "Mix 5-6" && busDefs()[kBusMix0 + 4].stereo);
   CHECK(busDefs()[kBusMix0 + 3].name == "Mix 4" && !busDefs()[kBusMix0 + 3].stereo);
-  CHECK(busDefs()[kBusGrp0 + 3].name == "Grp 7-8");
-  CHECK(busDefs()[kBusMtx0 + 1].name == "Mtx 3-4");
+  CHECK(busDefs()[kBusFx0 + 1].name == "FX 2");
   CHECK(outputSources()[defaultOutputSource(0)].name == "LR L");
   CHECK(outputSources()[defaultOutputSource(11)].name == "Mix 10");
-  CHECK(outputSources()[defaultOutputSource(12)].name == "Mtx 1");
-  CHECK(outputSources()[defaultOutputSource(17)].name == "PAFL R");
+  CHECK(outputSources()[defaultOutputSource(12)].name == "PAFL L");
+  CHECK(outputSources()[defaultOutputSource(17)].name == "Off");
 }
 
 TEST(mixer_registers_expected_parameters) {
   ParamRegistry reg;
   Mixer m(reg);
-  for (const char* p : {"ch/1/fader", "ch/16/eq/4/q", "ch/16/mix/7/pre", "ch/3/fx/4/level",
-                        "ch/1/delay/time", "ch/1/comp/mode", "st/3/gain", "st/1/pan",
-                        "fxret/4/eq/2/gain", "lr/geq/28", "mix/5/balance", "grp/4/lr",
-                        "mtx/2/grp/4", "mtx/1/lr", "fx/1/type", "fx/3/dly/time", "dca/4/mute",
-                        "mg/4/mute", "out/18/src", "ch/1/mg/2", "ch/1/grp/4"}) {
+  for (const char* p : {"ch/1/fader", "ch/16/eq/4/width", "ch/16/mix/7/pre", "ch/16/mix/7/on",
+                        "ch/3/fx/2/level", "ch/3/fx/2/on", "ch/1/delay/time", "ch/1/comp/mode",
+                        "st/3/gain", "st/1/pan", "fxret/4/eq/2/gain", "lr/geq/28", "mix/5/balance",
+                        "fx/1/type", "fx/3/dly/time", "fx/3/src", "dca/4/mute", "mg/4/mute",
+                        "out/18/src", "ch/1/mg/2", "talk/src", "talk/mix/7", "gen/type", "mon/level"}) {
     if (!reg.find(p)) std::printf("    missing %s\n", p);
     CHECK(reg.find(p) != nullptr);
   }
-  CHECK(reg.find("ch/1/fader") && reg.find("st/3/gain") && reg.find("fxret/4/eq/2/gain"));
-  CHECK(reg.find("lr/geq/28") && reg.find("mtx/2/grp/4") && reg.find("out/18/src"));
-  CHECK(reg.find("grp/1/geq/1") == nullptr);   // groups have no GEQ
-  CHECK(reg.find("fxret/1/fx/1/level") == nullptr);  // no FX-return -> FX feedback path
-  CHECK(reg.find("mix/1/balance") == nullptr);  // mono mix
+  CHECK(reg.find("ch/1/grp/1") == nullptr);      // Qu-16: no groups
+  CHECK(reg.find("mtx/1/fader") == nullptr);     // Qu-16: no matrix
+  CHECK(reg.find("ch/1/fx/3/level") == nullptr); // Qu-16: FX3/FX4 have no send buses
+  CHECK(reg.find("fx/1/src") == nullptr);        // FX1/FX2 always use their send bus
+  CHECK(reg.find("fxret/1/fx/1/level") == nullptr);
+  CHECK(reg.find("mix/1/balance") == nullptr);
+  CHECK(reg.find("ch/1/comp/mode")->get() == 1.0f);  // Manual RMS is the default
   CHECK(reg.find("ch/17/fader") == nullptr);
 }
 
@@ -154,34 +155,6 @@ TEST(mixer_post_fader_mix_and_master) {
   CHECK_NEAR(r.run({0})[outMix(3)], 0.125, 0.002);
   r.set("mix/3/mute", 1);
   CHECK_NEAR(r.run({0})[outMix(3)], 0.0, 1e-6);
-}
-
-TEST(mixer_groups_feed_lr) {
-  Rig r;
-  r.set("ch/1/lr", 0);
-  r.set("ch/1/grp/2", 1);
-  r.set("ch/1/pan", -1);
-  auto p = r.run({0});
-  CHECK_NEAR(p[kOutL], 0.5, 0.002);  // via the group
-  r.set("grp/2/fader", -k6dB);
-  CHECK_NEAR(r.run({0})[kOutL], 0.25, 0.002);
-  r.set("grp/2/lr", 0);
-  CHECK_NEAR(r.run({0})[kOutL], 0.0, 1e-6);
-}
-
-TEST(mixer_matrix_takes_post_fader_masters) {
-  Rig r;
-  r.set("ch/1/pan", -1);
-  r.set("lr/fader", -k6dB);
-  r.set("mtx/1/lr", 0);
-  auto p = r.run({0});
-  CHECK_NEAR(p[kOutMtx1], 0.25, 0.002);
-  r.set("ch/1/mix/1/level", 0);
-  r.set("mtx/1/mix/1", -k6dB);
-  r.set("mtx/1/lr", kMinusInfDb);
-  p = r.run({0});
-  CHECK_NEAR(p[kOutMtx1], 0.25, 0.002);      // mono mix feeds both matrix legs
-  CHECK_NEAR(p[kOutMtx1 + 1], 0.25, 0.002);
 }
 
 TEST(mixer_dca_scales_and_mutes) {
@@ -280,7 +253,7 @@ TEST(mixer_peq_low_band_bell_vs_shelf) {
   r.set("ch/1/pan", -1);
   r.set("ch/1/eq/1/freq", 1000);
   r.set("ch/1/eq/1/gain", 6);
-  r.set("ch/1/eq/1/q", 4);
+  r.set("ch/1/eq/1/width", 0.333f);
   r.set("ch/1/eq/1/type", 1);  // bell: full boost at its centre
   CHECK_NEAR(linToDb(r.run({0})[kOutL] / 0.5f), 6.0, 0.1);
   r.set("ch/1/eq/1/type", 0);  // shelf: half the boost at its corner

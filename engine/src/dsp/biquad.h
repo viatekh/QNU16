@@ -9,7 +9,7 @@ namespace qnu {
 // RBJ "Audio EQ Cookbook" biquad, transposed direct form II with double state.
 class Biquad {
  public:
-  enum class Type { Peak, LowShelf, HighShelf, HighPass, LowPass };
+  enum class Type { Peak, LowShelf, HighShelf, HighPass, LowPass, BandPass };
 
   void set(Type type, double fs, double f0, double gainDb, double q) {
     f0 = std::clamp(f0, 10.0, 0.45 * fs);
@@ -44,6 +44,10 @@ class Biquad {
         break;
       case Type::HighPass:
         b0 = (1 + cs) / 2; b1 = -(1 + cs); b2 = (1 + cs) / 2;
+        a0 = 1 + alpha; a1 = -2 * cs; a2 = 1 - alpha;
+        break;
+      case Type::BandPass:  // constant 0 dB peak gain
+        b0 = alpha; b1 = 0; b2 = -alpha;
         a0 = 1 + alpha; a1 = -2 * cs; a2 = 1 - alpha;
         break;
       case Type::LowPass:

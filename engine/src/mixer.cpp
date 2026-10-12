@@ -80,11 +80,13 @@ Mixer::Mixer(ParamRegistry& registry) : reg_(registry) {
     for (int m = 0; m < kMixes; ++m) {
       ch.mixLevel[m] = level(id + "/mix/" + n1(m) + "/level", kMinusInfDb);
       ch.mixPre[m] = tog(id + "/mix/" + n1(m) + "/pre", true);
+      ch.mixOn[m] = tog(id + "/mix/" + n1(m) + "/on", true);  // Assign key
     }
     if (!fxReturn) {
-      for (int f = 0; f < kFxUnits; ++f) {
+      for (int f = 0; f < kFxSends; ++f) {
         ch.fxLevel[f] = level(id + "/fx/" + n1(f) + "/level", kMinusInfDb);
         ch.fxPre[f] = tog(id + "/fx/" + n1(f) + "/pre", false);
+        ch.fxOn[f] = tog(id + "/fx/" + n1(f) + "/on", true);
       }
     }
     for (int g = 0; g < kGroups; ++g) ch.grp[g] = tog(id + "/grp/" + n1(g), false);
@@ -127,6 +129,10 @@ Mixer::Mixer(ParamRegistry& registry) : reg_(registry) {
     fx_[f].init(reg_, "fx/" + n1(f), fxTypes[f], fxDecay[f]);
     fxRetL_[f].assign(kMaxBlock, 0.0f);
     fxRetR_[f].assign(kMaxBlock, 0.0f);
+    fxMixFeed_[f].assign(kMaxBlock, 0.0f);
+    // 0 = off, M = Mix M (1..7). FX1/FX2 always use their own send bus.
+    if (f >= kFxSends)
+      fxSrc_[f] = reg_.add({"fx/" + n1(f) + "/src", 0, float(kMixes), 0, ParamKind::Choice, ""});
   }
 
   for (int d = 0; d < kDcas; ++d) {
@@ -138,6 +144,25 @@ Mixer::Mixer(ParamRegistry& registry) : reg_(registry) {
   for (int o = 0; o < kPhysOutputs; ++o)
     outSrc_[o] = reg_.add({"out/" + n1(o) + "/src", 0, lastSource,
                            static_cast<float>(defaultOutputSource(o)), ParamKind::Choice, ""});
+
+  // Engineer's tools: talkback, signal generator, monitor level.
+  auto injector = [&](Injector& inj, const std::string& b) {
+    inj.on = tog(b + "/on", false);
+    inj.lr = tog(b + "/lr", false);
+    for (int m = 0; m < kMixes; ++m) inj.mix[m] = tog(b + "/mix/" + n1(m), false);
+  };
+  injector(talk_, "talk");
+  talkSrc_ = reg_.add({"talk/src", 0, float(kPhysInputs), 0, ParamKind::Choice, ""});  // 0 = none
+  talkGain_ = num("talk/gain", -24, 24, 0, "dB");
+  talkHpf_ = tog("talk/hpf", true);  // 12 dB/oct at 120 Hz
+  injector(gen_, "gen");
+  genType_ = reg_.add({"gen/type", 0, 2, 0, ParamKind::Choice, ""});  // sine, white, pink
+  genFreq_ = num("gen/freq", 20, 20000, 1000, "Hz");
+  genLevel_ = num("gen/level", kMinusInfDb, 0, -30, "dB");
+  monLevel_ = level("mon/level", 0);
+  talkBuf_.assign(kMaxBlock, 0.0f);
+  genBuf_.assign(kMaxBlock, 0.0f);
+  rtaBuf_.assign(kMaxBlock, 0.0f);
 
   paflL_.assign(kMaxBlock, 0.0f);
   paflR_.assign(kMaxBlock, 0.0f);
@@ -152,6 +177,68 @@ void Mixer::prepare(double sampleRate) {
   for (auto& ch : inputs_) ch.dsp.prepare(sampleRate_);
   for (auto& bus : buses_) bus.dsp.prepare(sampleRate_);
   for (auto& f : fx_) f.prepare(sampleRate_);
+  talkFilter_.set(Biquad::Type::HighPass, sampleRate_, 120.0, 0.0, 0.7071);
+  talkFilter_.reset();
+  rta_.prepare(sampleRate_);
+}
+
+void Mixer::renderGenerator(int n) {
+  float* out = genBuf_.data();
+  switch (genType_->index()) {
+    case 0: {  // sine
+      const double inc = 2.0 * kPi * genFreq_->get() / sampleRate_;
+      for (int i = 0; i < n; ++i) {
+        out[i] = static_cast<float>(std::sin(genPhase_));
+        genPhase_ += inc;
+      }
+      genPhase_ = std::fmod(genPhase_, 2.0 * kPi);
+      break;
+    }
+    default: {  // white, or pink (Paul Kellet's filter), from the same white source
+      const bool pink = genType_->index() == 2;
+      auto& b = pink_;
+      for (int i = 0; i < n; ++i) {
+        genSeed_ = genSeed_ * 1664525u + 1013904223u;
+        const float w = static_cast<float>(genSeed_ >> 8) / float(1 << 24) * 2.0f - 1.0f;
+        if (!pink) {
+          out[i] = w;
+          continue;
+        }
+        b[0] = 0.99886f * b[0] + w * 0.0555179f;
+        b[1] = 0.99332f * b[1] + w * 0.0750759f;
+        b[2] = 0.96900f * b[2] + w * 0.1538520f;
+        b[3] = 0.86650f * b[3] + w * 0.3104856f;
+        b[4] = 0.55000f * b[4] + w * 0.5329522f;
+        b[5] = -0.7616f * b[5] - w * 0.0168980f;
+        out[i] = (b[0] + b[1] + b[2] + b[3] + b[4] + b[5] + b[6] + w * 0.5362f) * 0.11f;
+        b[6] = w * 0.115926f;
+      }
+    }
+  }
+}
+
+// Adds a mono source into LR and the assigned mixes (unity, no pan).
+void Mixer::inject(Injector& inj, const float* src, float gain, int n) {
+  inj.gain.target = inj.on->on() ? gain : 0.0f;
+  if (inj.gain.silent()) return;
+  float g = inj.gain.cur;
+  const float step = (inj.gain.target - inj.gain.cur) / static_cast<float>(n);
+  const bool toLr = inj.lr->on();
+  for (int i = 0; i < n; ++i) {
+    const float x = src[i] * g;
+    g += step;
+    if (toLr) {
+      buses_[kBusLR].l[i] += x;
+      buses_[kBusLR].r[i] += x;
+    }
+    for (int m = 0; m < kMixes; ++m) {
+      if (!inj.mix[m]->on()) continue;
+      Bus& mix = buses_[kBusMix0 + m];
+      mix.l[i] += x;
+      if (mix.def.stereo) mix.r[i] += x;
+    }
+  }
+  inj.gain.cur = inj.gain.target;
 }
 
 void Mixer::process(const float* const* in, float* const* out, int nframes) {
@@ -200,11 +287,16 @@ void Mixer::processBlock(const float* const* in, float* const* out, int n) {
     processInput(ch, static_cast<int>(i), n, dcaGain, mgMuted);
   }
 
-  // 2. FX sends -> engines -> FX return channels.
+  // 2. FX sends -> engines -> FX return channels. Engines past the send buses read the mix
+  //    captured at the end of the previous block.
   for (int f = 0; f < kFxUnits; ++f) {
-    Bus& send = buses_[kBusFx0 + f];
-    processBus(send, kBusFx0 + f, n);
-    fx_[f].process(send.l.data(), fxRetL_[f].data(), fxRetR_[f].data(), n);
+    if (f < kFxSends) {
+      Bus& send = buses_[kBusFx0 + f];
+      processBus(send, kBusFx0 + f, n);
+      fx_[f].process(send.l.data(), fxRetL_[f].data(), fxRetR_[f].data(), n);
+    } else {
+      fx_[f].process(fxMixFeed_[f].data(), fxRetL_[f].data(), fxRetR_[f].data(), n);
+    }
   }
   for (size_t i = 0; i < inputs_.size(); ++i) {
     Input& ch = inputs_[i];
@@ -214,10 +306,39 @@ void Mixer::processBlock(const float* const* in, float* const* out, int n) {
     processInput(ch, static_cast<int>(i), n, dcaGain, mgMuted);
   }
 
+  // Engineer's tools: talkback mic and signal generator into LR / mixes.
+  {
+    const int src = talkSrc_->index();
+    if (src > 0 && in[src - 1]) {
+      std::memcpy(talkBuf_.data(), in[src - 1], sizeof(float) * n);
+      if (talkHpf_->on()) talkFilter_.processBlock(talkBuf_.data(), n);
+      inject(talk_, talkBuf_.data(), dbToLin(talkGain_->get()), n);
+    }
+    if (gen_.on->on() || !gen_.gain.silent()) {
+      renderGenerator(n);
+      inject(gen_, genBuf_.data(), dbToLin(genLevel_->get()), n);
+    }
+  }
+
   // 3. Groups (they feed LR), then LR and the mixes.
   for (int g = 0; g < kGroups; ++g) processBus(buses_[kBusGrp0 + g], kBusGrp0 + g, n);
   processBus(buses_[kBusLR], kBusLR, n);
   for (int m = 0; m < kMixes; ++m) processBus(buses_[kBusMix0 + m], kBusMix0 + m, n);
+
+  // Capture the mixes that feed FX3/FX4 for the next block.
+  for (int f = kFxSends; f < kFxUnits; ++f) {
+    const int m = fxSrc_[f]->index();
+    float* feed = fxMixFeed_[f].data();
+    if (m <= 0 || m > kMixes) {
+      std::fill_n(feed, n, 0.0f);
+      continue;
+    }
+    const Bus& mix = buses_[kBusMix0 + m - 1];
+    if (mix.def.stereo)
+      for (int i = 0; i < n; ++i) feed[i] = 0.5f * (mix.l[i] + mix.r[i]);
+    else
+      std::memcpy(feed, mix.l.data(), sizeof(float) * n);
+  }
 
   // 4. Matrices, fed post-fader from LR, mixes and groups.
   for (int x = 0; x < kMatrices; ++x) {
@@ -237,8 +358,32 @@ void Mixer::processBlock(const float* const* in, float* const* out, int n) {
     std::memcpy(paflL_.data(), buses_[kBusLR].l.data(), sizeof(float) * n);
     std::memcpy(paflR_.data(), buses_[kBusLR].r.data(), sizeof(float) * n);
   }
+  // The RTA follows PAFL (so it shows LR when nothing is selected), before the monitor level.
+  for (int i = 0; i < n; ++i) rtaBuf_[i] = 0.5f * (paflL_[i] + paflR_[i]);
+  rta_.process(rtaBuf_.data(), n);
+  monGain_.target = dbToLin(monLevel_->get());
+  {
+    const Ramp start = monGain_;
+    monGain_.apply(paflL_.data(), n);
+    Ramp right = start;
+    right.apply(paflR_.data(), n);
+  }
   atomicMax(paflMeterL_, peakOf(paflL_.data(), n));
   atomicMax(paflMeterR_, peakOf(paflR_.data(), n));
+
+  // Recorder: Ch 1-16 direct outs + LR (multitrack), or LR (stereo).
+  if (recorder_ && recorder_->recording()) {
+    const float* tracks[Recorder::kMultitrackTracks];
+    if (recorder_->tracks() == Recorder::kMultitrackTracks) {
+      for (int c = 0; c < kMonoInputs; ++c) tracks[c] = direct_[c].data();
+      tracks[16] = buses_[kBusLR].l.data();
+      tracks[17] = buses_[kBusLR].r.data();
+    } else {
+      tracks[0] = buses_[kBusLR].l.data();
+      tracks[1] = buses_[kBusLR].r.data();
+    }
+    recorder_->push(tracks, n);
+  }
 
   // 6. Output patch.
   const auto& sources = outputSources();
@@ -304,16 +449,16 @@ void Mixer::processInput(Input& ch, int idx, int n, const std::array<float, kDca
 
   for (int m = 0; m < kMixes; ++m) {
     Bus& mix = buses_[kBusMix0 + m];
-    const float g = dbToLin(ch.mixLevel[m]->get()) * (ch.mixPre[m]->on() ? unmuted : post);
+    const float g = ch.mixOn[m]->on() ? dbToLin(ch.mixLevel[m]->get()) * (ch.mixPre[m]->on() ? unmuted : post) : 0.0f;
     if (mix.def.stereo)
       routeInto(ch.toMix[m].a, ch.toMix[m].b, l, r, mix.l.data(), mix.r.data(), g * pl, g * pr, n);
     else
       routeInto(ch.toMix[m].a, ch.toMix[m].b, l, r, mix.l.data(), nullptr, g * monoSum, 0, n);
   }
   if (!fxReturn) {
-    for (int f = 0; f < kFxUnits; ++f) {
+    for (int f = 0; f < kFxSends; ++f) {
       Bus& send = buses_[kBusFx0 + f];
-      const float g = dbToLin(ch.fxLevel[f]->get()) * (ch.fxPre[f]->on() ? unmuted : post);
+      const float g = ch.fxOn[f]->on() ? dbToLin(ch.fxLevel[f]->get()) * (ch.fxPre[f]->on() ? unmuted : post) : 0.0f;
       routeInto(ch.toFx[f].a, ch.toFx[f].b, l, r, send.l.data(), nullptr, g * monoSum, 0, n);
     }
   }
