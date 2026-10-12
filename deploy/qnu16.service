@@ -1,0 +1,20 @@
+[Unit]
+Description=QNU16 digital mixer
+After=qnu16-jackd.service network-online.target
+Requires=qnu16-jackd.service
+BindsTo=qnu16-jackd.service
+
+[Service]
+Type=simple
+User=pi
+EnvironmentFile=/etc/default/qnu16
+LimitRTPRIO=95
+LimitMEMLOCK=infinity
+# Give jackd a moment to open the device.
+ExecStartPre=/bin/sleep 2
+ExecStart=/opt/qnu16/bin/qnu16d --backend jack $QNU16_ARGS
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

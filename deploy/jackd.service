@@ -1,0 +1,17 @@
+[Unit]
+Description=JACK audio server for QNU16
+After=sound.target
+Wants=sound.target
+
+[Service]
+Type=simple
+User=pi
+EnvironmentFile=/etc/default/qnu16
+LimitRTPRIO=95
+LimitMEMLOCK=infinity
+ExecStart=/usr/bin/jackd -R -P 90 -d alsa -d ${JACK_DEVICE} -r ${JACK_RATE} -p ${JACK_PERIOD} -n ${JACK_NPERIODS} -X seq
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

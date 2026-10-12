@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <meta name="theme-color" content="#111317">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <title>QNU16</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">QNU<span>16</span></div>
+    <div class="conn" id="conn" title="Disconnected"><i></i><span id="connText">offline</span></div>
+    <nav class="mixsel" id="mixSel" aria-label="Fader layer"></nav>
+    <div class="spacer"></div>
+    <button class="btn warn" id="clearSolo" hidden>CLEAR PFL</button>
+    <div class="scenes">
+      <select id="sceneList" aria-label="Scene"></select>
+      <button class="btn" id="sceneLoad">RECALL</button>
+      <button class="btn" id="sceneSave">STORE</button>
+    </div>
+  </header>
+
+  <main class="desk">
+    <section class="strips" id="strips" aria-label="Channels"></section>
+    <section class="masters" id="masters" aria-label="Masters"></section>
+  </main>
+
+  <section class="detail" id="detail" hidden>
+    <header class="detail-head">
+      <h2 id="detailTitle">CH 1</h2>
+      <div class="detail-tabs" id="detailTabs"></div>
+      <button class="btn" id="detailClose" aria-label="Close">✕</button>
+    </header>
+    <div class="detail-body" id="detailBody"></div>
+  </section>
+
+  <script src="app.js"></script>
+</body>
+</html>

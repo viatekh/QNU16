@@ -1,0 +1,4 @@
+build/
+scenes/
+*.wav
+.DS_Store

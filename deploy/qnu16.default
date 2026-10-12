@@ -1,0 +1,14 @@
+# QNU16 runtime settings (read by qnu16-jackd.service and qnu16.service)
+
+# ALSA device of the audio interface. Find it with `aplay -l`.
+# Behringer UMC1820: hw:UMC1820   Focusrite 18i20: hw:USB   Generic: hw:0
+JACK_DEVICE=hw:UMC1820
+
+# 48 kHz, 64 frames x 3 periods = ~4 ms buffer (~5-6 ms round trip incl. converters).
+# If `journalctl -u qnu16-jackd` shows xruns, try JACK_PERIOD=128.
+JACK_RATE=48000
+JACK_PERIOD=64
+JACK_NPERIODS=3
+
+# qnu16d options. --load restores a scene at boot.
+QNU16_ARGS=--autoconnect --port 8016 --ui /opt/qnu16/share/qnu16/ui --scenes /var/lib/qnu16/scenes
