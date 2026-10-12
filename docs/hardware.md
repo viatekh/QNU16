@@ -37,8 +37,8 @@ ADAT, giving 16 in and 18 out. JACK ports are `qnu16:in_1..22` and `qnu16:out_1.
 | ST1–3 (in 17–22) | Any spare inputs, or JACK clients (laptop playback, a streaming PC) | Patch in JACK |
 | Out 1–2 | LR | FOH (front-of-house) |
 | Out 3–12 | Mix 1–10 | Wedges and in-ears |
-| Out 13–16 | Matrix 1–4 | Delay speakers, record feed, broadcast |
-| Out 17–18 | PAFL | Engineer's headphones |
+| Out 13–14 | Alt out (PAFL, scaled by PAFL LVL) | Engineer's headphones or a monitor speaker |
+| Out 15–18 | Off | Spare: patch direct outs, FX returns or a second copy of a mix |
 
 Every output is re-patchable in **SETUP → OUTPUT PATCH**. Sources include direct outs
 (post-gain) for multitrack recording.

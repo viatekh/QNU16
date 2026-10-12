@@ -11,37 +11,33 @@
 </head>
 <body>
   <div class="console">
-    <!-- SuperStrip: the selected channel's processing on dedicated knobs -->
+    <!-- SuperStrip: one knob per function for the selected channel or master -->
     <section class="superstrip" id="superstrip" aria-label="SuperStrip"></section>
 
-    <!-- Touchscreen -->
-    <section class="screen" aria-label="Screen">
-      <header class="screen-bar">
-        <div class="brand">QNU<span>16</span></div>
-        <div class="sel-name" id="selName">Ch 1</div>
-        <nav class="screen-tabs" id="screenTabs"></nav>
-        <div class="conn" id="conn" title="Disconnected"><i></i></div>
-      </header>
-      <div class="screen-sub" id="screenSub"></div>
-      <div class="screen-body" id="screenBody"></div>
-      <footer class="screen-foot">
-        <span id="sceneName">No scene</span>
-        <span id="engineInfo"></span>
-      </footer>
+    <!-- Touch screen with its screen-select keys -->
+    <section class="screen" aria-label="Touch screen">
+      <nav class="screen-keys" id="screenKeys" aria-label="Screen select"></nav>
+      <div class="display">
+        <header class="toolbar">
+          <div class="chip" id="selChip"></div>
+          <div class="sceneinfo" id="sceneInfo"></div>
+          <div class="toast" id="toast" role="status"></div>
+          <div class="conn" id="conn" title="Disconnected"><i></i></div>
+        </header>
+        <div class="tabs" id="tabs"></div>
+        <div class="page" id="page"></div>
+      </div>
     </section>
 
-    <!-- Fader bank -->
-    <section class="bank" aria-label="Channels">
+    <!-- Fader bank with layer select -->
+    <section class="bank" aria-label="Fader strips">
       <div class="layers" id="layers"></div>
       <div class="strips" id="strips"></div>
     </section>
 
-    <!-- Mix keys, mute groups and master strip -->
+    <!-- Mix keys, SoftKeys, Copy/Paste/Reset/Fn, engineer's tools, master strip -->
     <section class="right" aria-label="Masters">
-      <div class="mixkeys">
-        <div class="keygrid" id="mixKeys"></div>
-        <div class="mg" id="muteGroups"></div>
-      </div>
+      <div class="controls" id="controls"></div>
       <div class="master" id="master"></div>
     </section>
   </div>

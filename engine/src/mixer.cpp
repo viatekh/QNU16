@@ -160,6 +160,18 @@ Mixer::Mixer(ParamRegistry& registry) : reg_(registry) {
   genFreq_ = num("gen/freq", 20, 20000, 1000, "Hz");
   genLevel_ = num("gen/level", kMinusInfDb, 0, -30, "dB");
   monLevel_ = level("mon/level", 0);
+
+  // Surface setup, stored with the desk so every connected tablet shares it.
+  // Custom layer slot -> strip: 0 none, 1..23 inputs, 24..33 masters (bus order), 34..37 DCA 1-4.
+  const int customStrips = kInputStrips + kBuses + kDcas;
+  for (int i = 0; i < 16; ++i) {
+    const float def = i < kDcas ? float(kInputStrips + kBuses + 1 + i) : 0.0f;
+    reg_.add({"custom/" + n1(i) + "/strip", 0, float(customStrips), def, ParamKind::Choice, ""});
+  }
+  // SoftKey functions: 0 none, 1-4 mute group 1-4, 5-8 DCA 1-4 mute, 9 talkback,
+  // 10-13 tap tempo FX1-4, 14 next scene, 15 previous scene. Default: mute groups 1-4.
+  for (int i = 0; i < 4; ++i)
+    reg_.add({"soft/" + n1(i) + "/func", 0, 15, float(i + 1), ParamKind::Choice, ""});
   talkBuf_.assign(kMaxBlock, 0.0f);
   genBuf_.assign(kMaxBlock, 0.0f);
   rtaBuf_.assign(kMaxBlock, 0.0f);
