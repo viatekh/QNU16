@@ -21,4 +21,4 @@ jobs:
       - name: Benchmark
         run: ./build/qnu16-bench 10 64
       - name: Check UI syntax
-        run: node --check ui/app.js
+        run: for f in ui/*.js; do node --check "$f"; done

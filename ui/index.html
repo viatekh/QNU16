@@ -3,44 +3,18 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
-  <meta name="theme-color" content="#16181c">
+  <meta name="theme-color" content="#0a1622">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <title>QNU16</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <div class="console">
-    <!-- SuperStrip: one knob per function for the selected channel or master -->
-    <section class="superstrip" id="superstrip" aria-label="SuperStrip"></section>
-
-    <!-- Touch screen with its screen-select keys -->
-    <section class="screen" aria-label="Touch screen">
-      <nav class="screen-keys" id="screenKeys" aria-label="Screen select"></nav>
-      <div class="display">
-        <header class="toolbar">
-          <div class="chip" id="selChip"></div>
-          <div class="sceneinfo" id="sceneInfo"></div>
-          <div class="toast" id="toast" role="status"></div>
-          <div class="conn" id="conn" title="Disconnected"><i></i></div>
-        </header>
-        <div class="tabs" id="tabs"></div>
-        <div class="page" id="page"></div>
-      </div>
-    </section>
-
-    <!-- Fader bank with layer select -->
-    <section class="bank" aria-label="Fader strips">
-      <div class="layers" id="layers"></div>
-      <div class="strips" id="strips"></div>
-    </section>
-
-    <!-- Mix keys, SoftKeys, Copy/Paste/Reset/Fn, engineer's tools, master strip -->
-    <section class="right" aria-label="Masters">
-      <div class="controls" id="controls"></div>
-      <div class="master" id="master"></div>
-    </section>
-  </div>
-  <script src="app.js"></script>
+  <!-- The panel is laid out as the Qu-16 top panel; surface.js builds it once connected. -->
+  <div class="console" id="console"><div class="connecting">Connecting to the desk…</div></div>
+  <script src="core.js"></script>
+  <script src="surface.js"></script>
+  <script src="screens.js"></script>
+  <script>connect(); requestAnimationFrame(animate);</script>
 </body>
 </html>

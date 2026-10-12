@@ -23,22 +23,22 @@ real-time mixing engine with a web control surface.
 |---|---|---|
 | Inputs | 16 mono + 3 stereo + 4 stereo FX returns | Same |
 | Mixes | LR, Mix 1–4 (mono), Mix 5-6/7-8/9-10 (stereo), FX1/FX2 sends | Same |
-| Input processing | Gain/trim, polarity, HPF (20 Hz–2 kHz), gate, 4-band PEQ (width 1.5–1/9 oct, shelf/bell outer bands), compressor (Manual Peak, Manual RMS, Slow Opto, Punchbag), delay (85 ms) | Same, plus insert and ducker |
-| Master processing | PEQ, 28-band GEQ with fader flip, compressor, delay | Same |
-| FX | 4 engines (reverb, delay, chorus, flanger); FX3/FX4 fed from a mix | 4 engines, more types |
+| Input processing | Trim, polarity, FX insert, HPF (20 Hz–2 kHz), ducker, gate, 4-band PEQ (1.5–1/9 oct, LF/HF shelf at the widest width), compressor (Manual Peak/RMS, Auto Slow Opto/Punchbag, Hard Knee, ratio to ∞), delay (85 ms), stereo linking, AMM | Same |
+| Master processing | FX insert, PEQ, 28-band GEQ with fader flip, compressor, delay (170 ms) | Same |
+| FX | 4 engines: Reverb (Classic/Hall/Room/Plate), Delay, ADT, Chorus, Symphonic, Flanger, Phaser, Gated Verb; patched Insert, Mix>Return or Ch>Return | Same types (different algorithms) |
 | RTA | 31 bands, follows PAFL, peak band in red; on Home, behind the GEQ and on the faders in fader flip | Same |
 | DCAs / mute groups | 4 / 4 | 4 / 4 |
-| Surface | SuperStrip; screen keys Home/Processing/Routing/FX/Scenes/Setup; layers 1-16, 17-32 and Custom; mix keys with Assign and Pre Fade; 4 SoftKeys; Copy/Paste/Reset/Fn; talkback; PAFL level | Physical surface + iPad app |
-| Engineer's tools | Talkback, signal generator (sine/white/pink) | Same |
-| Recording | 18-track (Ch 1–16 + LR) or stereo WAV | Qu-Drive 18-track / stereo, plus playback |
-| Scenes | 100 numbered scenes, current/next, Go Next | 100, plus safes and filters |
+| Surface | The Qu-16 panel on a touch screen: SuperStrip, touch screen with Sel screens, Fn/Copy/Paste/Reset and rotary, layers, mix select, 4 SoftKeys, talk and phones | Physical surface + iPad app |
+| Engineer's tools | Talkback (HPF, latch option), signal generator (sine, white, pink, band-pass), PAFL options, RTA and spectrogram | Same |
+| Recording | Qu-Drive layout: 18-track (USB patch) or stereo 24-bit WAV, and playback | Same |
+| Scenes | 100, with global and per-scene recall filters, safes, Reset Mix Settings; user libraries | Same |
 | Outputs | 18 patchable (LR, mixes, PAFL, FX returns, direct outs) | 12 XLR + 2 Alt, plus USB |
 | Motorised faders | Via an external MCU surface (roadmap) | 17 built-in |
 | Latency | ≈ 5–7 ms round trip | ≈ 1–2 ms |
 | Price | **≈ £540** with 16 preamps | ≈ £2,000+ |
 
 The worst case (every processor on every channel and master, all sends, all four FX and the RTA)
-uses about **13% of one x86 core**. Run `qnu16-bench` on a Pi 5 to measure it there.
+uses about **13% of one x86 core** (including the AMM on all 16 channels). Run `qnu16-bench` on a Pi 5 to measure it there.
 
 ## Quick start (no audio hardware needed)
 
@@ -71,24 +71,26 @@ The output is outputs 1–2 (LR with the default patch), or all 18 with `--all-o
 
 ## Using the surface
 
-The layout follows the Qu-16 top panel:
+The page is the Qu-16 top panel, laid out as in the Qu Mixer Reference Guide, and works the same
+way:
 
-- **SuperStrip** (top left): the selected channel's gain, HPF, gate, PEQ (gain/freq/width per
-  band), compressor, GEQ fader flip and pan. **IN** keys switch each block on.
-- **Screen keys**: **HOME** (meters, RTA, recorder), **PROCESS** (preamp, HPF, gate, PEQ, GEQ,
-  compressor, delay), **ROUTING**, **FX**, **SCENES** and **SETUP** (outputs, talkback, signal
-  generator, custom layer, SoftKeys, names).
-- **Layers**: **1** is Ch 1–16. **2** is ST1–3, the FX returns, the FX1/FX2 masters and the mix
-  masters. **C** is the Custom layer, set up in SETUP → CUSTOM (DCA 1–4 by default).
-- **Mix keys**: a mix or FX key puts its sends on the faders, with its master on the master strip.
-  Latch **ASSIGN** or **PRE FADE**, then press Sel keys to assign channels or switch them
-  pre/post. **GEQ FLIP** puts the selected master's GEQ on the faders, with the RTA on the meters.
-- **COPY / PASTE / RESET**: latch the key, then press a Sel key (whole strip) or an IN key (one
-  block). **Fn** on the Processing screen opens the factory library.
-- **SoftKeys** default to mute groups 1–4. **TALK**, **PAFL LVL** and the recorder transport sit
-  below them.
-- Double-tap a strip name to rename it. Double-click a fader or knob to reset it. Shift-drag for
-  fine control.
+- **SuperStrip** (top left): Preamp (USB source key, Gain), HPF, Parametric EQ (Width, Freq,
+  Gain per band, In), Gate and Comp (threshold, GR, In), GEQ Fader Flip and Pan, for the channel
+  or master whose **Sel** key is lit. Pan follows the mix keys (LR pan, stereo mix send pan).
+- **Touch screen**: **Processing** (TouchChannel blocks along the top; touch one for its
+  parameters), **Routing** (Mix Sends, FX Sends, Mute/DCA; Fn opens the Mute/DCA masters),
+  **Home** (Home, User, Meters, RTA with Fn Spectrogram, Qu-Drive), **FX** (front and back panel,
+  Fn Library), **Scenes** (Scenes, Global Filter, Safes) and **Setup** (PAFL, Talkback, SigGen,
+  AMM, Custom Layer, SoftKeys, Preferences, Output Patch, USB Audio).
+- **Parameter boxes**: touch one (it turns orange), then turn the **screen rotary**, drag the
+  box, or use the mouse wheel. **Fn** opens the page named at the left of the status bar.
+- **Layers**: the lower key is CH1–16, the upper key ST1–3, FX returns, FX sends and mix masters;
+  press the lit key again (or both) for the Custom layer.
+- **Mix Select**: a mix key puts its sends on the faders; press it again for LR. Hold (or tap to
+  latch) **Assign** or **Pre Fade** and press Sel keys; the master Sel toggles all sources.
+- **Copy / Paste / Reset**: hold or latch, then press a Sel key (processing), an In key or block
+  (one block), a Mix key (sends) or a scene.
+- Double-click a fader or knob to reset it. Shift-drag for fine control.
 
 ## Repository layout
 
@@ -96,25 +98,24 @@ The layout follows the Qu-16 top panel:
 engine/src/dsp/       biquad, gate, compressor, delay, GEQ, RTA (header-only, allocation-free)
 engine/src/topology.* console layout (inputs, buses, output patch sources)
 engine/src/strip.*    processing chain shared by inputs and masters
-engine/src/fx.*       FX engines (reverb, delay, chorus, flanger)
-engine/src/recorder.* multitrack / stereo WAV recorder (lock-free ring + writer thread)
+engine/src/fx.*       FX engines (reverb, delay, ADT, chorus, symphonic, flanger, phaser, gated verb)
+engine/src/recorder.* Qu-Drive recorder and player (lock-free rings + disk threads)
 engine/src/mixer.*    signal flow: sends, groups, matrices, DCAs, mute groups, PAFL, meters
 engine/src/params.*   lock-free parameter registry and labels
-engine/src/scene.*    scene files
+engine/src/scene.*    scenes (filters, safes, Reset Mix Settings) and user libraries
 engine/src/controller.*  text control protocol (docs/protocol.md)
 engine/src/server/    HTTP + WebSocket server (no dependencies)
 engine/src/backend/   JACK backend and a dummy backend for development
 engine/tools/         qnu16d (daemon), qnu16-render, qnu16-bench
-ui/                   web control surface (plain HTML/CSS/JS, no build step)
+ui/                   web control surface (core.js, surface.js, screens.js; no build step)
 deploy/               Raspberry Pi / Debian setup and systemd units
 tests/                unit and end-to-end tests
 ```
 
 ## Roadmap
 
-1. **v0.4:** Mackie Control bridge for X-Touch motorised faders; recorder playback (virtual
-   soundcheck); scene safes and filters.
-2. **v0.5:** Channel insert and ducker, more FX types (gated reverb, ADT, phaser), user libraries.
+1. **v0.4:** Mackie Control bridge for X-Touch motorised faders; MIDI control.
+2. **v0.5:** Remote-controllable preamps (48V, pad, analogue gain) on a supported interface.
 3. **v1.0:** A custom I/O board (TDM codecs straight into the Pi's I2S) to remove the USB interface
    and cut latency to about 1.5 ms.
 

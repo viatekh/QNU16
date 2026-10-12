@@ -10,7 +10,9 @@
   `ChannelDsp::init` (`engine/src/strip.cpp`), routing and global ones in the `Mixer` constructor,
   and FX ones in `FxEngine::init`. The UI receives every parameter's range from the engine (the `k`
   message), so it needs no mirror. Document new paths in `docs/protocol.md`.
-- `ui/app.js` mirrors the Qu-16 layout: SuperStrip, screen pages, layers, mix keys, master strip.
+- The UI mirrors the Qu-16 panel and screens (Qu Mixer Reference Guide): `ui/core.js` (state,
+  protocol, widgets), `ui/surface.js` (SuperStrip, strips, layers, master, keys) and
+  `ui/screens.js` (the touch screen pages).
   Views rebuild under a watcher tag (`withTag`), so handlers from old views are pruned.
 - The UI is plain JS with no build step. Keep it dependency-free so it works offline on the
   desk's own Wi-Fi.
