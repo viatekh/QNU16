@@ -10,5 +10,5 @@ JACK_RATE=48000
 JACK_PERIOD=64
 JACK_NPERIODS=3
 
-# qnu16d options. --load restores a scene at boot.
-QNU16_ARGS=--autoconnect --port 8016 --ui /opt/qnu16/share/qnu16/ui --scenes /var/lib/qnu16/scenes
+# qnu16d options. --load N recalls scene N at boot. --recordings is the Qu-Drive directory.
+QNU16_ARGS=--autoconnect --port 8016 --ui /opt/qnu16/share/qnu16/ui --scenes /var/lib/qnu16/scenes --recordings /var/lib/qnu16/drive

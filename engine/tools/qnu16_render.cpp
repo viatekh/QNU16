@@ -78,7 +78,7 @@ int main(int argc, char** argv) {
     size_t n;
     while ((n = std::fread(buf, 1, sizeof(buf), fp)) > 0) text.append(buf, n);
     std::fclose(fp);
-    qnu::applyScene(text, reg, labels);
+    qnu::recallScene(text, reg, labels);
   }
   mixer.prepare(rate);
 

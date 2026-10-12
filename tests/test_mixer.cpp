@@ -21,7 +21,12 @@ struct Rig {
   std::array<std::vector<float>, kPhysInputs> in;
   std::array<std::vector<float>, kPhysOutputs> out;
 
-  Rig() { mixer.prepare(kFs); }
+  // A desk with every fader at 0 dB (Reset Mix Settings leaves channel faders and LR off).
+  Rig() {
+    mixer.prepare(kFs);
+    for (const auto& d : inputDefs()) reg.find(d.id + "/fader")->set(0);
+    for (const auto& b : busDefs()) reg.find(b.id + "/fader")->set(0);
+  }
 
   void set(const std::string& path, float v) {
     Param* p = reg.find(path);
@@ -74,20 +79,25 @@ TEST(mixer_registers_expected_parameters) {
   ParamRegistry reg;
   Mixer m(reg);
   for (const char* p : {"ch/1/fader", "ch/16/eq/4/width", "ch/16/mix/7/pre", "ch/16/mix/7/on",
-                        "ch/3/fx/2/level", "ch/3/fx/2/on", "ch/1/delay/time", "ch/1/comp/mode",
+                        "ch/3/fx/2/level", "ch/3/fx/2/on", "ch/1/delay/time", "ch/1/comp/type",
                         "st/3/gain", "st/1/pan", "fxret/4/eq/2/gain", "lr/geq/28", "mix/5/balance",
-                        "fx/1/type", "fx/3/dly/time", "fx/3/src", "dca/4/mute", "mg/4/mute",
-                        "out/18/src", "ch/1/mg/2", "talk/src", "talk/mix/7", "gen/type", "mon/level"}) {
+                        "fx/1/type", "fx/3/dly/time", "fx/3/src", "fx/1/patch", "dca/4/mute", "mg/4/mute",
+                        "out/18/src", "ch/1/mg/2", "talk/src", "talk/mix/7", "gen/type", "mon/level",
+                        "ch/1/src", "ch/1/dout/trim", "ch/1/mix/5/pan", "mix/1/mg/1", "lr/mg/4",
+                        "fx/2/mg/1", "ch/1/insert/on", "ch/1/insert/type", "ch/1/duck/trigger",
+                        "duck/thresh", "link/8/sc", "amm/16/prio", "usb/18/src", "pafl/trim",
+                        "filter/custom", "safe/mix/7", "soft/4/arg", "custom/16/strip"}) {
     if (!reg.find(p)) std::printf("    missing %s\n", p);
     CHECK(reg.find(p) != nullptr);
   }
   CHECK(reg.find("ch/1/grp/1") == nullptr);      // Qu-16: no groups
   CHECK(reg.find("mtx/1/fader") == nullptr);     // Qu-16: no matrix
   CHECK(reg.find("ch/1/fx/3/level") == nullptr); // Qu-16: FX3/FX4 have no send buses
-  CHECK(reg.find("fx/1/src") == nullptr);        // FX1/FX2 always use their send bus
+  CHECK(reg.find("ch/1/mix/4/pan") == nullptr);  // mono mixes have no send pan
+  CHECK(reg.find("fxret/1/insert/on") == nullptr);
   CHECK(reg.find("fxret/1/fx/1/level") == nullptr);
   CHECK(reg.find("mix/1/balance") == nullptr);
-  CHECK(reg.find("ch/1/comp/mode")->get() == 1.0f);  // Manual RMS is the default
+  CHECK(reg.find("ch/1/comp/type")->get() == 0.0f);  // Manual Peak
   CHECK(reg.find("ch/17/fader") == nullptr);
 }
 
@@ -128,10 +138,11 @@ TEST(mixer_stereo_input_to_mono_mix_sums) {
   CHECK_NEAR(p[outMix(1)], 0.5, 0.002);  // (L+R)/2
 }
 
-TEST(mixer_mono_input_to_stereo_mix_follows_pan) {
+TEST(mixer_mono_input_to_stereo_mix_follows_send_pan) {
   Rig r;
   r.set("ch/1/mix/5/level", 0);  // Mix 5-6
-  r.set("ch/1/pan", 1);
+  r.set("ch/1/mix/5/pan", 1);    // the send's own pan, not the LR pan
+  r.set("ch/1/pan", -1);
   const auto p = r.run({0});
   CHECK_NEAR(p[outMix(5)], 0.0, 1e-6);
   CHECK_NEAR(p[outMix(6)], 0.5, 0.002);
@@ -208,7 +219,9 @@ TEST(mixer_output_patch) {
   for (size_t i = 0; i < outputSources().size(); ++i)
     if (outputSources()[i].name == "Ch 3 DO") direct = static_cast<int>(i);
   r.set("out/6/src", direct);
-  r.set("ch/3/gain", -k6dB);  // direct out is post-preamp, pre-fader
+  r.set("dout/src", kDoPostPreamp);
+  r.set("dout/fader", 0);
+  r.set("ch/3/gain", -k6dB);
   r.set("ch/3/fader", kMinusInfDb);
   const auto p = r.run({0, 2});
   CHECK_NEAR(p[4], p[kOutL], 1e-6);
@@ -253,10 +266,9 @@ TEST(mixer_peq_low_band_bell_vs_shelf) {
   r.set("ch/1/pan", -1);
   r.set("ch/1/eq/1/freq", 1000);
   r.set("ch/1/eq/1/gain", 6);
-  r.set("ch/1/eq/1/width", 0.333f);
-  r.set("ch/1/eq/1/type", 1);  // bell: full boost at its centre
+  r.set("ch/1/eq/1/width", 0.333f);  // bell: full boost at its centre
   CHECK_NEAR(linToDb(r.run({0})[kOutL] / 0.5f), 6.0, 0.1);
-  r.set("ch/1/eq/1/type", 0);  // shelf: half the boost at its corner
+  r.set("ch/1/eq/1/width", kEqShelfWidth);  // widest: a shelf, half the boost at its corner
   CHECK_NEAR(linToDb(r.run({0})[kOutL] / 0.5f), 3.0, 0.5);
 }
 

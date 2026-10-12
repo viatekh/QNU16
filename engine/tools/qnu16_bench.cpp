@@ -1,6 +1,7 @@
 // qnu16-bench: worst-case DSP load. Every input runs HPF, gate, PEQ, compressor and delay with
 // every mix and FX send active; every master runs PEQ, a full GEQ, compressor and delay; all four
-// FX engines run. Run it on the target (e.g. a Raspberry Pi 5) to check headroom.
+// FX engines run, and the AMM runs on all 16 channels. Run it on the target (e.g. a Raspberry Pi 5)
+// to check headroom.
 
 #include <chrono>
 #include <cstdio>
@@ -40,8 +41,9 @@ int main(int argc, char** argv) {
     set(bus.id + "/delay/on", 1);
     set(bus.id + "/delay/time", 5);
   }
-  for (int f = qnu::kFxSends + 1; f <= qnu::kFxUnits; ++f) set("fx/" + std::to_string(f) + "/src", f);
-  set("gen/on", 1);
+  for (int f = qnu::kFxSends + 1; f <= qnu::kFxUnits; ++f)
+    set("fx/" + std::to_string(f) + "/src", qnu::fxTargetForBus(qnu::kBusMix0 + f - 1));
+  for (int c = 1; c <= qnu::kAmmChannels; ++c) set("amm/" + std::to_string(c) + "/on", 1);
   set("gen/type", 2);
   set("gen/mix/1", 1);
   mixer.prepare(rate);

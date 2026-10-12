@@ -59,13 +59,17 @@ class Labels {
  public:
   explicit Labels(std::vector<std::string> keys) : keys_(std::move(keys)) {}
 
+  // Channel names are up to 6 characters, as on the Qu.
+  static constexpr size_t kMaxNameChars = 6;
+
   bool isValidKey(const std::string& key) const;
-  // Returns false for an unknown key. Text is sanitized (no control chars, max 24 chars).
+  const std::vector<std::string>& keys() const { return keys_; }
+  // Returns false for an unknown key. Text is sanitized (no control chars, max 6 chars).
   bool set(const std::string& key, const std::string& text);
   std::string get(const std::string& key) const;
   std::map<std::string, std::string> all() const;
   void clear();
-  static std::string sanitize(const std::string& text);
+  static std::string sanitize(const std::string& text, size_t maxChars);
 
  private:
   std::vector<std::string> keys_;

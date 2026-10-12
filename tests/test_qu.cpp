@@ -26,7 +26,12 @@ struct Desk {
   std::array<std::vector<float>, kPhysInputs> in;
   std::array<std::vector<float>, kPhysOutputs> out;
 
-  Desk() { mixer.prepare(kFs); }
+  // Every fader at 0 dB (Reset Mix Settings leaves channel faders and LR off).
+  Desk() {
+    mixer.prepare(kFs);
+    for (const auto& d : inputDefs()) reg.find(d.id + "/fader")->set(0);
+    for (const auto& b : busDefs()) reg.find(b.id + "/fader")->set(0);
+  }
   void set(const std::string& p, float v) {
     Param* q = reg.find(p);
     if (!q) std::printf("    no parameter %s\n", p.c_str());
@@ -66,7 +71,7 @@ TEST(qu_fx3_is_fed_from_a_mix) {
   Desk d;
   d.set("ch/1/lr", 0);
   d.set("ch/1/mix/4/level", 0);          // Mix 4 carries the channel
-  d.set("fx/3/src", 4);                  // FX3 <- Mix 4
+  d.set("fx/3/src", fxTargetForBus(kBusMix0 + 3));  // FX3 <- Mix 4 (Mix>Return)
   d.set("fx/3/type", FxEngine::kDelay);
   d.set("fx/3/dly/time", 20);
   d.set("fx/3/dly/feedback", 0);
@@ -153,20 +158,20 @@ TEST(qu_rta_follows_pafl) {
 
 TEST(qu_signal_generator_and_talkback) {
   Desk d;
-  d.set("gen/on", 1);
   d.set("gen/type", 0);
   d.set("gen/freq", 1000);
-  d.set("gen/level", -20);
+  d.set("gen/level", -2);  // Qu dB scale: -20 dBFS
   d.set("gen/mix/3", 1);
   auto p = d.run({});
   CHECK_NEAR(linToDb(p[outMix(3)]), -20.0, 0.2);
   CHECK_NEAR(p[kOutL], 0.0, 1e-6);  // not assigned to LR
-  d.set("gen/on", 0);
   d.set("talk/src", 5);              // talkback mic on input 5
   d.set("talk/on", 1);
   d.set("talk/mix/1", 1);
+  d.run({4});
   p = d.run({4});
   CHECK_NEAR(p[outMix(1)], 0.5, 0.01);  // 1 kHz passes the 120 Hz HPF
+  CHECK_NEAR(p[outMix(3)], 0.0, 1e-6);  // the generator is off while Talk is active
   d.set("talk/on", 0);
   d.run({4});
   CHECK_NEAR(d.run({4})[outMix(1)], 0.0, 1e-6);
@@ -192,14 +197,23 @@ TEST(qu_recorder_writes_multitrack_wav) {
   d.run({2}, 1000, 0.5f, 0.5);   // ch 3 plays
   rec.stop();
   CHECK(rec.dropouts() == 0u);
-  AudioFile f;
-  CHECK(readWav((dir / rec.file()).string(), &f, &err));
-  CHECK(f.channels.size() == 18u);
-  CHECK(f.frames() == static_cast<size_t>(kFs * 0.5));
-  if (f.channels.size() == 18u) {
-    CHECK_NEAR(peakOf(f.channels[2].data(), static_cast<int>(f.frames())), 0.5, 0.01);  // ch 3 track
-    CHECK(peakOf(f.channels[0].data(), static_cast<int>(f.frames())) == 0.0f);        // ch 1 silent
-    CHECK(peakOf(f.channels[16].data(), static_cast<int>(f.frames())) > 0.3f);        // LR L
-  }
+  CHECK(rec.file() == "QU-MT001");
+  // One 24-bit mono WAV per track, TRK01..TRK18.
+  auto track = [&](int t) {
+    AudioFile f;
+    CHECK(readWav((dir / "QU-MT001" / driveTrackName(t)).string(), &f, &err));
+    CHECK(f.channels.size() == 1u);
+    CHECK(f.frames() == static_cast<size_t>(kFs * 0.5));
+    return f.channels.empty() ? 0.0f : peakOf(f.channels[0].data(), static_cast<int>(f.frames()));
+  };
+  CHECK_NEAR(track(2), 0.5, 0.001);  // CH3 (insert send)
+  CHECK(track(0) == 0.0f);           // CH1 silent
+  CHECK(track(16) > 0.3f);           // LR L
+  CHECK(listDrive(dir.string()).size() == 1u);
+  // The next recording gets the next number.
+  CHECK(rec.start(Recorder::kStereo, kFs, &err));
+  d.run({2}, 1000, 0.5f, 0.1);
+  rec.stop();
+  CHECK(rec.file() == "QU-ST002.WAV");
   std::filesystem::remove_all(dir);
 }

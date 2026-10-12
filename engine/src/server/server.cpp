@@ -142,10 +142,12 @@ void ControlServer::run(const std::atomic<bool>& stop) {
       if (anyWs) {
         broadcast(meters);
         broadcast(rta);
-        // Recorder status: every tick while recording, and once more when it stops.
-        const std::string rec = controller_.recorderMessage();
-        if (rec != lastRecorder_) broadcast(rec);
-        lastRecorder_ = rec.rfind("d rec", 0) == 0 ? std::string() : rec;
+        broadcast(controller_.ammMessage());
+        // Qu-Drive status: every tick while recording or playing, and once more when it stops.
+        const std::string drive = controller_.driveMessage();
+        if (drive != lastRecorder_) broadcast(drive);
+        const bool running = drive.rfind("d rec", 0) == 0 || drive.rfind("d play", 0) == 0;
+        lastRecorder_ = running ? std::string() : drive;
       }
     }
 
@@ -250,7 +252,8 @@ void ControlServer::handleHttp(Client& c) {
     sendText(c, controller_.metaMessage());
     sendText(c, controller_.stateMessage());
     sendText(c, controller_.sceneListMessage());
-    sendText(c, controller_.recorderMessage());
+    sendText(c, controller_.driveMessage());
+    sendText(c, controller_.driveListMessage());
     if (!c.inBuf.empty()) handleWsData(c);
     return;
   }

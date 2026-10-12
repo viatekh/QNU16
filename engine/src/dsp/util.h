@@ -27,6 +27,10 @@ inline void enableFlushToZero() {
 constexpr float kMinusInfDb = -90.0f;
 constexpr double kPi = 3.14159265358979323846;
 
+// The Qu dB scale used for thresholds and levels on screen: 0 dB = 0 dBu = -18 dBFS
+// (the "0" LED on the strip meters).
+constexpr float kQuRefDbfs = -18.0f;
+
 inline float dbToLin(float db) {
   return db <= kMinusInfDb + 0.01f ? 0.0f : std::pow(10.0f, db / 20.0f);
 }

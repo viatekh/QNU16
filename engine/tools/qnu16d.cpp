@@ -28,8 +28,8 @@ void usage() {
       "  --bind ADDR            bind address (default: 0.0.0.0)\n"
       "  --ui DIR               web UI directory (default: ui)\n"
       "  --scenes DIR           scene directory (default: scenes)\n"
-      "  --load NAME            load this scene at startup\n"
-      "  --recordings DIR       where recordings are written (default: recordings)\n");
+      "  --load N               recall scene N (1-100) at startup\n"
+      "  --recordings DIR       the Qu-Drive: where recordings are written and played from\n");
 }
 
 }  // namespace
@@ -69,15 +69,17 @@ int main(int argc, char** argv) {
   qnu::Labels labels(qnu::Mixer::labelKeys());
   qnu::SceneStore scenes(scenesDir);
   qnu::Recorder recorder(recordingsDir);
+  qnu::Player player(recordingsDir);
   mixer.setRecorder(&recorder);
+  mixer.setPlayer(&player);
 
   if (!loadScene.empty()) {
     std::string text, err;
-    if (!scenes.load(loadScene, &text, &err)) {
-      std::fprintf(stderr, "cannot load scene '%s': %s\n", loadScene.c_str(), err.c_str());
+    if (!scenes.load(std::atoi(loadScene.c_str()), &text, &err)) {
+      std::fprintf(stderr, "cannot recall scene %s: %s\n", loadScene.c_str(), err.c_str());
       return 1;
     }
-    qnu::applyScene(text, registry, labels);
+    qnu::recallScene(text, registry, labels);
   }
 
   std::unique_ptr<qnu::AudioBackend> backend;
@@ -101,7 +103,7 @@ int main(int argc, char** argv) {
   }
 
   qnu::Controller controller(mixer, registry, labels, scenes, backend->name());
-  controller.setRecorder(&recorder);
+  controller.setDrive(&recorder, &player);
   qnu::ControlServer server(controller, srvOpt);
   if (!server.start(&err)) {
     std::fprintf(stderr, "control server failed: %s\n", err.c_str());

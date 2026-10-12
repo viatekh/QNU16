@@ -96,4 +96,35 @@ int defaultOutputSource(int physOut) {
   return 0;
 }
 
+std::vector<std::string> fxTargetNames() {
+  std::vector<std::string> n = {"None"};
+  for (int i = 0; i < kFxTargetInputs; ++i) n.push_back(inputDefs()[i].name);
+  for (const auto& b : busDefs()) n.push_back(b.name);
+  return n;
+}
+
+const std::vector<UsbSource>& usbSources() {
+  static const std::vector<UsbSource> srcs = [] {
+    std::vector<UsbSource> s;
+    s.push_back({"Off", UsbSource::Off, 0, 0});
+    for (int i = 0; i < kMonoInputs; ++i) s.push_back({"CH " + num(i + 1), UsbSource::Channel, i, 0});
+    for (int i = 0; i < kStereoInputs; ++i) {
+      s.push_back({"ST" + num(i + 1) + " L", UsbSource::Channel, kMonoInputs + 2 * i, 0});
+      s.push_back({"ST" + num(i + 1) + " R", UsbSource::Channel, kMonoInputs + 2 * i + 1, 0});
+    }
+    for (const auto& o : outputSources())
+      if (o.kind == OutputSource::Bus) s.push_back({o.name, UsbSource::Bus, o.index, o.side});
+    return s;
+  }();
+  return srcs;
+}
+
+int defaultUsbSource(int track) {
+  const std::string want = track < kMonoInputs ? "CH " + num(track + 1) : track == 16 ? "LR L" : "LR R";
+  const auto& srcs = usbSources();
+  for (size_t i = 0; i < srcs.size(); ++i)
+    if (srcs[i].name == want) return static_cast<int>(i);
+  return 0;
+}
+
 }  // namespace qnu

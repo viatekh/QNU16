@@ -82,4 +82,36 @@ struct OutputSource {
 const std::vector<OutputSource>& outputSources();
 int defaultOutputSource(int physOut);
 
+// FX patching (the FX back panel), per FX engine.
+enum FxPatch { kFxUnassigned = 0, kFxInsert = 1, kFxMixReturn = 2, kFxChReturn = 3 };
+// What an FX engine is patched to (fx/N/src): 0 none, then the inputs CH 1-16 and ST 1-3, then
+// every bus in bus order (LR, Mix 1..., FX 1-2). Mix>Return takes a bus, Ch>Return an input,
+// Insert an input or LR / a mix.
+constexpr int kFxTargetInputs = kMonoInputs + kStereoInputs;
+constexpr int kFxTargets = 1 + kFxTargetInputs + kBuses;
+inline int fxTargetForInput(int input) { return 1 + input; }
+inline int fxTargetForBus(int bus) { return 1 + kFxTargetInputs + bus; }
+std::vector<std::string> fxTargetNames();
+
+// USB / Qu-Drive recording tracks (usb/T/src). Channel sources take the insert send (post
+// preamp) or the direct out, per usb/chsrc.
+constexpr int kUsbTracks = 18;
+struct UsbSource {
+  std::string name;
+  enum Kind { Off, Channel, Bus } kind;
+  int index;  // physical input / bus index
+  int side;
+};
+const std::vector<UsbSource>& usbSources();
+int defaultUsbSource(int track);  // CH 1-16, then LR L/R
+
+// The Qu's mix "pre-fade source" points and the global direct-out source points.
+enum MixSource { kSrcPostPreamp = 0, kSrcPreEq, kSrcPostEq, kSrcPostAll };
+enum DirectOutSource { kDoPostPreamp = 0, kDoPostInsert, kDoPostPeq, kDoPostComp, kDoPostDelay };
+
+constexpr int kLinkPairs = kMonoInputs / 2;  // CH 1-2 ... 15-16
+constexpr int kAmmChannels = kMonoInputs;
+constexpr int kSoftKeys = 4;
+constexpr int kCustomStrips = 16;
+
 }  // namespace qnu

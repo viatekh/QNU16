@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <stdexcept>
 
 namespace qnu {
 
@@ -15,6 +16,7 @@ float Param::set(float v) {
 }
 
 Param* ParamRegistry::add(ParamInfo info) {
+  if (byPath_.count(info.path)) throw std::logic_error("duplicate parameter " + info.path);
   auto p = std::make_unique<Param>(std::move(info));
   Param* raw = p.get();
   byPath_[raw->info().path] = raw;
@@ -38,7 +40,7 @@ bool Labels::isValidKey(const std::string& key) const {
 bool Labels::set(const std::string& key, const std::string& text) {
   if (!isValidKey(key)) return false;
   std::lock_guard<std::mutex> lock(mu_);
-  const std::string clean = sanitize(text);
+  const std::string clean = sanitize(text, kMaxNameChars);
   if (clean.empty()) names_.erase(key);
   else names_[key] = clean;
   return true;
@@ -60,11 +62,13 @@ void Labels::clear() {
   names_.clear();
 }
 
-std::string Labels::sanitize(const std::string& text) {
+std::string Labels::sanitize(const std::string& text, size_t maxChars) {
   // Copy whole UTF-8 code points only, so truncation never splits a character.
   std::string out;
   size_t chars = 0;
-  for (size_t i = 0; i < text.size() && chars < 24;) {
+  size_t i = 0;
+  while (i < text.size() && (text[i] == ' ' || static_cast<unsigned char>(text[i]) < 0x20)) ++i;
+  for (; i < text.size() && chars < maxChars;) {
     const unsigned char c = static_cast<unsigned char>(text[i]);
     size_t len = c < 0x80 ? 1 : (c >> 5) == 0x6 ? 2 : (c >> 4) == 0xe ? 3 : (c >> 3) == 0x1e ? 4 : 0;
     if (len == 0 || i + len > text.size()) {  // invalid byte: skip it

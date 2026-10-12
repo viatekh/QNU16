@@ -69,6 +69,7 @@ class Gate {
 class Compressor {
  public:
   enum Mode { kPeak = 0, kRms = 1, kOpto = 2, kPunch = 3 };
+  static constexpr float kRatioInfinity = 50.0f;  // ratios at or above this act as a limiter
 
   void setSampleRate(float sr) {
     sr_ = sr;
@@ -78,7 +79,7 @@ class Compressor {
   void setParams(float threshDb, float ratio, float attackMs, float releaseMs, float kneeDb,
                  float makeupDb, int mode = kPeak) {
     thresh_ = threshDb;
-    slope_ = 1.0f / std::max(ratio, 1.0f) - 1.0f;
+    slope_ = ratio >= kRatioInfinity ? -1.0f : 1.0f / std::max(ratio, 1.0f) - 1.0f;
     makeup_ = makeupDb;
     mode_ = mode;
     if (mode == kOpto) {
@@ -164,6 +165,59 @@ class Compressor {
   float env_ = 0.0f, rms_ = 0.0f, maxGr_ = 0.0f, slowEnv_ = 0.0f;
   float gain_ = 1.0f, targetGain_ = 1.0f, gainStep_ = 0.0f;
   int countdown_ = 0;
+};
+
+// Ducker: turns a channel down by `depth` while a trigger signal is above the threshold,
+// for voice-over announcements, with attack (duck down), hold and release (recover).
+class Ducker {
+ public:
+  void setSampleRate(float sr) {
+    sr_ = sr;
+    detCoef_ = timeToCoef(10.0f, sr_);
+  }
+
+  void setParams(float threshDb, float depthDb, float attackMs, float holdMs, float releaseMs) {
+    thresh_ = dbToLin(threshDb);
+    floor_ = dbToLin(-depthDb);
+    atkCoef_ = timeToCoef(attackMs, sr_);
+    relCoef_ = timeToCoef(releaseMs, sr_);
+    holdSamples_ = static_cast<int>(holdMs * 0.001f * sr_);
+  }
+
+  void reset() {
+    env_ = 0.0f;
+    gain_ = 1.0f;
+    holdCounter_ = 0;
+  }
+
+  // trig may be null (no trigger: recover to unity).
+  void process(const float* trig, float* l, float* r, int n) {
+    for (int i = 0; i < n; ++i) {
+      const float a = trig ? std::fabs(trig[i]) : 0.0f;
+      env_ = a > env_ ? a : env_ * detCoef_;
+      bool duck = false;
+      if (env_ >= thresh_) {
+        duck = true;
+        holdCounter_ = holdSamples_;
+      } else if (holdCounter_ > 0) {
+        --holdCounter_;
+        duck = true;
+      }
+      const float target = duck ? floor_ : 1.0f;
+      gain_ = target + (gain_ - target) * (duck ? atkCoef_ : relCoef_);
+      l[i] *= gain_;
+      if (r) r[i] *= gain_;
+    }
+  }
+
+  float gain() const { return gain_; }
+
+ private:
+  float sr_ = 48000.0f;
+  float thresh_ = 1.0f, floor_ = 1.0f;
+  float atkCoef_ = 0.0f, relCoef_ = 0.0f, detCoef_ = 0.0f;
+  int holdSamples_ = 0, holdCounter_ = 0;
+  float env_ = 0.0f, gain_ = 1.0f;
 };
 
 }  // namespace qnu
