@@ -57,6 +57,17 @@ struct Ramp {
     cur = target;
   }
 
+  // Multiply-accumulate (src1 + src2) * gain into dst while ramping.
+  inline void mixInto2(const float* src1, const float* src2, float* dst, int n) {
+    float g = cur;
+    const float step = (target - cur) / static_cast<float>(n);
+    for (int i = 0; i < n; ++i) {
+      dst[i] += (src1[i] + src2[i]) * g;
+      g += step;
+    }
+    cur = target;
+  }
+
   // Apply gain in place while ramping.
   inline void apply(float* buf, int n) {
     float g = cur;

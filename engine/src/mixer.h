@@ -5,40 +5,28 @@
 #include <string>
 #include <vector>
 
-#include "dsp/biquad.h"
-#include "dsp/dynamics.h"
+#include "fx.h"
 #include "params.h"
+#include "strip.h"
+#include "topology.h"
 
 namespace qnu {
 
-constexpr int kChannels = 16;
-constexpr int kAuxes = 4;
-constexpr int kDcas = 4;
-constexpr int kEqBands = 4;
-constexpr int kMaxBlock = 256;
-
-// Physical output order. With a UMC1820 these map 1:1 onto its first 8 line outputs.
-enum Output : int {
-  kOutMainL = 0,
-  kOutMainR = 1,
-  kOutAux1 = 2,
-  kOutPflL = kOutAux1 + kAuxes,
-  kOutPflR,
-  kOutputs
-};
-
-const char* outputName(int index);  // "main_L", "aux_1", "pfl_R", ...
-
 struct MeterSnapshot {
-  std::array<float, kChannels> chInDb{};    // after trim (preamp) stage
-  std::array<float, kChannels> chOutDb{};   // post-fader
-  std::array<float, kChannels> chGrDb{};    // compressor gain reduction, positive dB
-  std::array<bool, kChannels> chGateOpen{};
-  std::array<float, kOutputs> outDb{};
+  struct Input {
+    float inDb = -120, outDb = -120, grDb = 0;
+    bool gateOpen = true;
+  };
+  struct Bus {
+    float lDb = -120, rDb = -120, grDb = 0;
+  };
+  std::array<Input, kInputStrips> inputs{};
+  std::array<Bus, kBuses> buses{};
+  float paflLDb = -120, paflRDb = -120;
 };
 
-// The 16-channel mixing engine. Construct once (registers all parameters), call prepare(),
-// then process() from the audio thread. Everything in process() is allocation- and lock-free.
+// The console engine. Construct once (registers every parameter), call prepare(), then call
+// process() from the audio thread. process() never allocates, locks or blocks.
 class Mixer {
  public:
   explicit Mixer(ParamRegistry& registry);
@@ -46,69 +34,80 @@ class Mixer {
   void prepare(double sampleRate);
   double sampleRate() const { return sampleRate_; }
 
-  // in: kChannels pointers (any may be null = silence). out: kOutputs pointers (any may be null).
+  // in: kPhysInputs pointers, out: kPhysOutputs pointers. Any pointer may be null.
   void process(const float* const* in, float* const* out, int nframes);
 
-  // Control thread: peak values since the previous call.
+  // Control thread: peaks since the previous call.
   MeterSnapshot takeMeters();
 
-  // Keys accepted by Labels: ch/1..16, aux/1..4, dca/1..4, main.
+  // Label keys: every input and bus id, plus dca/N and mg/N.
   static std::vector<std::string> labelKeys();
 
  private:
-  struct ChannelParams {
-    Param *trim, *polarity;
-    Param *hpfOn, *hpfFreq;
-    Param *gateOn, *gateThresh, *gateRange, *gateAttack, *gateHold, *gateRelease;
-    Param *eqOn;
-    std::array<Param*, kEqBands> eqFreq, eqGain, eqQ;
-    Param *compOn, *compThresh, *compRatio, *compAttack, *compRelease, *compKnee, *compMakeup;
-    Param *pan, *fader, *mute, *solo, *mainAssign;
-    std::array<Param*, kAuxes> auxSend, auxPre;
-    std::array<Param*, kDcas> dca;
+  struct Send {
+    Ramp a, b;  // a: left (or mono) leg, b: right leg
   };
 
-  struct Channel {
-    ChannelParams p;
-    Biquad hpf;
-    std::array<Biquad, kEqBands> eq;
-    Gate gate;
-    Compressor comp;
-    // Cached parameter values, to recompute coefficients only on change.
-    float hpfFreqCache = -1.0f;
-    std::array<float, kEqBands> eqFreqCache{}, eqGainCache{}, eqQCache{};
-    std::array<float, 5> gateCache{};
-    std::array<float, 6> compCache{};
-    Ramp trimGain, mainL, mainR;
-    std::array<Ramp, kAuxes> aux;
-    float postGain = 0.0f;  // fader*mute*dca (for metering)
+  struct Input {
+    InputDef def;
+    ChannelDsp dsp;
+    Param *pan = nullptr, *fader = nullptr, *mute = nullptr, *pafl = nullptr, *lr = nullptr;
+    std::array<Param*, kMixes> mixLevel{}, mixPre{};
+    std::array<Param*, kFxUnits> fxLevel{}, fxPre{};  // null for FX returns
+    std::array<Param*, kGroups> grp{};
+    std::array<Param*, kDcas> dca{};
+    std::array<Param*, kMuteGroups> mg{};
+
+    Send toLR;
+    std::array<Send, kMixes> toMix;
+    std::array<Send, kFxUnits> toFx;
+    std::array<Send, kGroups> toGrp;
+    std::vector<float> l, r;
   };
 
-  struct BusParams {
-    Param *fader, *mute;
+  struct Bus {
+    BusDef def;
+    ChannelDsp dsp;
+    Param *fader = nullptr, *mute = nullptr, *pafl = nullptr, *balance = nullptr;
+    Param* lr = nullptr;                                 // groups: route to LR
+    std::array<Param*, kMatrixSources> mtxLevel{};       // matrices: source send levels
+    std::array<Send, kMatrixSources> mtxSend;
+    Send toLR;
+    Ramp gainL, gainR;
+    std::vector<float> l, r;  // summing point, then processed and post-fader in place
   };
 
   void processBlock(const float* const* in, float* const* out, int n);
-  void updateChannelDsp(Channel& ch);
-  void resetDspState();
+  void processInput(Input& ch, int idx, int n, const std::array<float, kDcas>& dcaGain,
+                    const std::array<bool, kMuteGroups>& mgMuted);
+  void processBus(Bus& bus, int idx, int n);
 
   ParamRegistry& reg_;
   double sampleRate_ = 48000.0;
-  std::array<Channel, kChannels> ch_;
-  BusParams main_{};
-  std::array<BusParams, kAuxes> auxBus_{};
-  std::array<BusParams, kDcas> dcaBus_{};
-  Ramp mainBusL_, mainBusR_;
-  std::array<Ramp, kAuxes> auxBusGain_;
+  std::vector<Input> inputs_;
+  std::vector<Bus> buses_;
+  std::array<FxEngine, kFxUnits> fx_;
+  std::array<std::vector<float>, kFxUnits> fxRetL_, fxRetR_;
+  std::array<Param*, kDcas> dcaFader_{}, dcaMute_{};
+  std::array<Param*, kMuteGroups> mgMute_{};
+  std::array<Param*, kPhysOutputs> outSrc_{};
 
-  // Scratch buffers, sized at construction (never reallocated).
-  std::vector<float> chBuf_, mixL_, mixR_, pfl_;
-  std::vector<std::vector<float>> auxMix_;
+  std::vector<float> paflL_, paflR_;
+  std::vector<std::vector<float>> direct_;  // post-preamp copies of each physical input
+  std::vector<float> silence_;
+  bool anyPafl_ = false;
 
-  // Meters: audio thread accumulates, takeMeters() reads-and-clears.
-  std::array<std::atomic<float>, kChannels> mChIn_{}, mChOut_{}, mChGr_{};
-  std::array<std::atomic<bool>, kChannels> mChGate_{};
-  std::array<std::atomic<float>, kOutputs> mOut_{};
+  // Meters: audio thread accumulates, takeMeters() reads and clears.
+  struct InMeter {
+    std::atomic<float> in{0}, out{0}, gr{0};
+    std::atomic<bool> gate{true};
+  };
+  struct BusMeter {
+    std::atomic<float> l{0}, r{0}, gr{0};
+  };
+  std::array<InMeter, kInputStrips> inMeters_;
+  std::array<BusMeter, kBuses> busMeters_;
+  std::atomic<float> paflMeterL_{0}, paflMeterR_{0};
 };
 
 }  // namespace qnu

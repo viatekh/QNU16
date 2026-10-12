@@ -6,28 +6,49 @@ namespace qnu {
 
 namespace {
 
-const float kEqDefaultFreq[kEqBands] = {100.0f, 400.0f, 2500.0f, 8000.0f};
-const float kEqDefaultQ[kEqBands] = {0.707f, 1.0f, 1.0f, 0.707f};
-const Biquad::Type kEqType[kEqBands] = {Biquad::Type::LowShelf, Biquad::Type::Peak,
-                                        Biquad::Type::Peak, Biquad::Type::HighShelf};
+std::string n1(int i) { return std::to_string(i + 1); }
 
-std::string idx(int i) { return std::to_string(i + 1); }
+// Routes a mono (r == null) or stereo source into a mono (dr == null) or stereo destination.
+// Stereo->stereo: L->L with gl, R->R with gr. Mono->stereo: src->L with gl, src->R with gr.
+// Any->mono: (L [+ R]) with gl.
+void routeInto(Ramp& a, Ramp& b, const float* l, const float* r, float* dl, float* dr, float gl,
+               float gr, int n) {
+  a.target = gl;
+  b.target = dr ? gr : 0.0f;
+  if (dr) {
+    if (!a.silent()) a.mixInto(l, dl, n);
+    if (!b.silent()) b.mixInto(r ? r : l, dr, n);
+  } else if (!a.silent()) {
+    if (r) a.mixInto2(l, r, dl, n);
+    else a.mixInto(l, dl, n);
+  }
+}
+
+// Constant-power pan for mono sources (-3 dB at centre).
+void panGains(float pan, float* gl, float* gr) {
+  const float angle = static_cast<float>((pan + 1.0f) * kPi / 4.0);
+  *gl = std::cos(angle);
+  *gr = std::sin(angle);
+}
+
+// Balance for stereo sources: unity at centre, turning one side down.
+void balanceGains(float bal, float* gl, float* gr) {
+  *gl = bal > 0.0f ? 1.0f - bal : 1.0f;
+  *gr = bal < 0.0f ? 1.0f + bal : 1.0f;
+}
+
+float peak2(const float* l, const float* r, int n) {
+  return r ? std::max(peakOf(l, n), peakOf(r, n)) : peakOf(l, n);
+}
 
 }  // namespace
 
-const char* outputName(int index) {
-  static const char* names[kOutputs] = {"main_L", "main_R", "aux_1", "aux_2",
-                                        "aux_3",  "aux_4",  "pfl_L", "pfl_R"};
-  static_assert(kOutputs == 8, "update outputName table");
-  return index >= 0 && index < kOutputs ? names[index] : "?";
-}
-
 std::vector<std::string> Mixer::labelKeys() {
   std::vector<std::string> keys;
-  for (int c = 0; c < kChannels; ++c) keys.push_back("ch/" + idx(c));
-  for (int a = 0; a < kAuxes; ++a) keys.push_back("aux/" + idx(a));
-  for (int d = 0; d < kDcas; ++d) keys.push_back("dca/" + idx(d));
-  keys.push_back("main");
+  for (const auto& d : inputDefs()) keys.push_back(d.id);
+  for (const auto& b : busDefs()) keys.push_back(b.id);
+  for (int d = 0; d < kDcas; ++d) keys.push_back("dca/" + n1(d));
+  for (int m = 0; m < kMuteGroups; ++m) keys.push_back("mg/" + n1(m));
   return keys;
 }
 
@@ -38,120 +59,99 @@ Mixer::Mixer(ParamRegistry& registry) : reg_(registry) {
   auto tog = [&](const std::string& path, bool def) {
     return reg_.add({path, 0.0f, 1.0f, def ? 1.0f : 0.0f, ParamKind::Toggle, ""});
   };
+  auto level = [&](const std::string& path, float def) {
+    return num(path, kMinusInfDb, 10, def, "dB");
+  };
 
-  for (int c = 0; c < kChannels; ++c) {
-    const std::string b = "ch/" + idx(c) + "/";
-    ChannelParams& p = ch_[c].p;
-    p.trim = num(b + "trim", -24, 24, 0, "dB");
-    p.polarity = tog(b + "polarity", false);
-    p.hpfOn = tog(b + "hpf/on", false);
-    p.hpfFreq = num(b + "hpf/freq", 20, 400, 80, "Hz");
-    p.gateOn = tog(b + "gate/on", false);
-    p.gateThresh = num(b + "gate/thresh", -80, 0, -50, "dB");
-    p.gateRange = num(b + "gate/range", 0, 80, 40, "dB");
-    p.gateAttack = num(b + "gate/attack", 0.05f, 50, 0.5f, "ms");
-    p.gateHold = num(b + "gate/hold", 0, 500, 50, "ms");
-    p.gateRelease = num(b + "gate/release", 5, 2000, 150, "ms");
-    p.eqOn = tog(b + "eq/on", true);
-    for (int k = 0; k < kEqBands; ++k) {
-      const std::string e = b + "eq/" + idx(k) + "/";
-      p.eqFreq[k] = num(e + "freq", 20, 20000, kEqDefaultFreq[k], "Hz");
-      p.eqGain[k] = num(e + "gain", -15, 15, 0, "dB");
-      p.eqQ[k] = num(e + "q", 0.3f, 10, kEqDefaultQ[k], "");
+  // Input channels and FX returns.
+  inputs_.resize(inputDefs().size());
+  for (size_t i = 0; i < inputs_.size(); ++i) {
+    Input& ch = inputs_[i];
+    ch.def = inputDefs()[i];
+    const std::string& id = ch.def.id;
+    const bool fxReturn = ch.def.kind == InputKind::FxReturn;
+    ch.dsp.init(reg_, id, fxReturn ? ChannelDsp::kPeq : ChannelDsp::kInputSections, ch.def.stereo,
+                kInputDelayMaxMs);
+    ch.pan = num(id + "/pan", -1, 1, 0, "");
+    ch.fader = level(id + "/fader", 0);
+    ch.mute = tog(id + "/mute", false);
+    ch.pafl = tog(id + "/pafl", false);
+    ch.lr = tog(id + "/lr", true);
+    for (int m = 0; m < kMixes; ++m) {
+      ch.mixLevel[m] = level(id + "/mix/" + n1(m) + "/level", kMinusInfDb);
+      ch.mixPre[m] = tog(id + "/mix/" + n1(m) + "/pre", true);
     }
-    p.compOn = tog(b + "comp/on", false);
-    p.compThresh = num(b + "comp/thresh", -60, 0, -20, "dB");
-    p.compRatio = num(b + "comp/ratio", 1, 20, 3, ":1");
-    p.compAttack = num(b + "comp/attack", 0.1f, 100, 10, "ms");
-    p.compRelease = num(b + "comp/release", 10, 2000, 100, "ms");
-    p.compKnee = num(b + "comp/knee", 0, 12, 6, "dB");
-    p.compMakeup = num(b + "comp/makeup", 0, 24, 0, "dB");
-    p.pan = num(b + "pan", -1, 1, 0, "");
-    p.fader = num(b + "fader", kMinusInfDb, 10, 0, "dB");
-    p.mute = tog(b + "mute", false);
-    p.solo = tog(b + "solo", false);
-    p.mainAssign = tog(b + "main", true);
-    for (int a = 0; a < kAuxes; ++a) {
-      p.auxSend[a] = num(b + "aux/" + idx(a) + "/send", kMinusInfDb, 10, kMinusInfDb, "dB");
-      p.auxPre[a] = tog(b + "aux/" + idx(a) + "/pre", true);
+    if (!fxReturn) {
+      for (int f = 0; f < kFxUnits; ++f) {
+        ch.fxLevel[f] = level(id + "/fx/" + n1(f) + "/level", kMinusInfDb);
+        ch.fxPre[f] = tog(id + "/fx/" + n1(f) + "/pre", false);
+      }
     }
-    for (int d = 0; d < kDcas; ++d) p.dca[d] = tog(b + "dca/" + idx(d), false);
+    for (int g = 0; g < kGroups; ++g) ch.grp[g] = tog(id + "/grp/" + n1(g), false);
+    for (int d = 0; d < kDcas; ++d) ch.dca[d] = tog(id + "/dca/" + n1(d), false);
+    for (int m = 0; m < kMuteGroups; ++m) ch.mg[m] = tog(id + "/mg/" + n1(m), false);
+    ch.l.assign(kMaxBlock, 0.0f);
+    ch.r.assign(kMaxBlock, 0.0f);
   }
-  for (int a = 0; a < kAuxes; ++a) {
-    auxBus_[a].fader = num("aux/" + idx(a) + "/fader", kMinusInfDb, 10, 0, "dB");
-    auxBus_[a].mute = tog("aux/" + idx(a) + "/mute", false);
+
+  // Masters.
+  buses_.resize(busDefs().size());
+  for (size_t b = 0; b < buses_.size(); ++b) {
+    Bus& bus = buses_[b];
+    bus.def = busDefs()[b];
+    const std::string& id = bus.def.id;
+    const bool fxSend = bus.def.kind == BusKind::FxSend;
+    const unsigned sections = fxSend ? 0u
+                              : bus.def.kind == BusKind::Group ? ChannelDsp::kGroupSections
+                                                               : ChannelDsp::kMasterSections;
+    bus.dsp.init(reg_, id, sections, bus.def.stereo, kBusDelayMaxMs);
+    bus.fader = level(id + "/fader", 0);
+    bus.mute = tog(id + "/mute", false);
+    bus.pafl = tog(id + "/pafl", false);
+    if (bus.def.stereo) bus.balance = num(id + "/balance", -1, 1, 0, "");
+    if (bus.def.kind == BusKind::Group) bus.lr = tog(id + "/lr", true);
+    if (bus.def.kind == BusKind::Matrix) {
+      for (int s = 0; s < kMatrixSources; ++s) {
+        const int srcBus = s == 0 ? kBusLR : s <= kMixes ? kBusMix0 + s - 1 : kBusGrp0 + s - 1 - kMixes;
+        bus.mtxLevel[s] = level(id + "/" + busDefs()[srcBus].id, kMinusInfDb);
+      }
+    }
+    bus.l.assign(kMaxBlock, 0.0f);
+    bus.r.assign(kMaxBlock, 0.0f);
   }
+
+  // FX engines: two reverbs (long and short), a delay and a chorus out of the box.
+  const int fxTypes[kFxUnits] = {FxEngine::kReverb, FxEngine::kReverb, FxEngine::kDelay, FxEngine::kChorus};
+  const float fxDecay[kFxUnits] = {2.4f, 1.1f, 1.5f, 1.5f};
+  for (int f = 0; f < kFxUnits; ++f) {
+    fx_[f].init(reg_, "fx/" + n1(f), fxTypes[f], fxDecay[f]);
+    fxRetL_[f].assign(kMaxBlock, 0.0f);
+    fxRetR_[f].assign(kMaxBlock, 0.0f);
+  }
+
   for (int d = 0; d < kDcas; ++d) {
-    dcaBus_[d].fader = num("dca/" + idx(d) + "/fader", kMinusInfDb, 10, 0, "dB");
-    dcaBus_[d].mute = tog("dca/" + idx(d) + "/mute", false);
+    dcaFader_[d] = level("dca/" + n1(d) + "/fader", 0);
+    dcaMute_[d] = tog("dca/" + n1(d) + "/mute", false);
   }
-  main_.fader = num("main/fader", kMinusInfDb, 10, 0, "dB");
-  main_.mute = tog("main/mute", false);
+  for (int m = 0; m < kMuteGroups; ++m) mgMute_[m] = tog("mg/" + n1(m) + "/mute", false);
+  const float lastSource = static_cast<float>(outputSources().size() - 1);
+  for (int o = 0; o < kPhysOutputs; ++o)
+    outSrc_[o] = reg_.add({"out/" + n1(o) + "/src", 0, lastSource,
+                           static_cast<float>(defaultOutputSource(o)), ParamKind::Choice, ""});
 
-  chBuf_.assign(kMaxBlock, 0.0f);
-  mixL_.assign(kMaxBlock, 0.0f);
-  mixR_.assign(kMaxBlock, 0.0f);
-  pfl_.assign(kMaxBlock, 0.0f);
-  auxMix_.assign(kAuxes, std::vector<float>(kMaxBlock, 0.0f));
+  paflL_.assign(kMaxBlock, 0.0f);
+  paflR_.assign(kMaxBlock, 0.0f);
+  silence_.assign(kMaxBlock, 0.0f);
+  direct_.assign(kPhysInputs, std::vector<float>(kMaxBlock, 0.0f));
 
   prepare(sampleRate_);
 }
 
 void Mixer::prepare(double sampleRate) {
-  sampleRate_ = sampleRate;
-  for (auto& ch : ch_) {
-    ch.gate.setSampleRate(static_cast<float>(sampleRate));
-    ch.comp.setSampleRate(static_cast<float>(sampleRate));
-    // Force coefficient recomputation on the next block.
-    ch.hpfFreqCache = -1.0f;
-    ch.eqFreqCache.fill(-1.0f);
-    ch.gateCache.fill(-1.0f);
-    ch.compCache.fill(-1.0f);
-  }
-  resetDspState();
-}
-
-void Mixer::resetDspState() {
-  for (auto& ch : ch_) {
-    ch.hpf.reset();
-    for (auto& e : ch.eq) e.reset();
-    ch.gate.reset();
-    ch.comp.reset();
-  }
-}
-
-void Mixer::updateChannelDsp(Channel& ch) {
-  const ChannelParams& p = ch.p;
-  const double fs = sampleRate_;
-
-  const float hf = p.hpfFreq->get();
-  if (hf != ch.hpfFreqCache) {
-    ch.hpf.set(Biquad::Type::HighPass, fs, hf, 0.0, 0.7071);
-    ch.hpfFreqCache = hf;
-  }
-  for (int k = 0; k < kEqBands; ++k) {
-    const float f = p.eqFreq[k]->get(), g = p.eqGain[k]->get(), q = p.eqQ[k]->get();
-    if (f != ch.eqFreqCache[k] || g != ch.eqGainCache[k] || q != ch.eqQCache[k]) {
-      ch.eq[k].set(kEqType[k], fs, f, g, q);
-      ch.eqFreqCache[k] = f;
-      ch.eqGainCache[k] = g;
-      ch.eqQCache[k] = q;
-    }
-  }
-  const std::array<float, 5> gate = {p.gateThresh->get(), p.gateRange->get(),
-                                     p.gateAttack->get(), p.gateHold->get(),
-                                     p.gateRelease->get()};
-  if (gate != ch.gateCache) {
-    ch.gate.setParams(gate[0], gate[1], gate[2], gate[3], gate[4]);
-    ch.gateCache = gate;
-  }
-  const std::array<float, 6> comp = {p.compThresh->get(),  p.compRatio->get(),
-                                     p.compAttack->get(),  p.compRelease->get(),
-                                     p.compKnee->get(),    p.compMakeup->get()};
-  if (comp != ch.compCache) {
-    ch.comp.setParams(comp[0], comp[1], comp[2], comp[3], comp[4], comp[5]);
-    ch.compCache = comp;
-  }
+  sampleRate_ = std::min(sampleRate, kMaxSampleRate);
+  for (auto& ch : inputs_) ch.dsp.prepare(sampleRate_);
+  for (auto& bus : buses_) bus.dsp.prepare(sampleRate_);
+  for (auto& f : fx_) f.prepare(sampleRate_);
 }
 
 void Mixer::process(const float* const* in, float* const* out, int nframes) {
@@ -159,119 +159,230 @@ void Mixer::process(const float* const* in, float* const* out, int nframes) {
   int offset = 0;
   while (offset < nframes) {
     const int n = std::min(kMaxBlock, nframes - offset);
-    const float* inChunk[kChannels];
-    float* outChunk[kOutputs];
-    for (int c = 0; c < kChannels; ++c) inChunk[c] = in && in[c] ? in[c] + offset : nullptr;
-    for (int o = 0; o < kOutputs; ++o) outChunk[o] = out && out[o] ? out[o] + offset : nullptr;
+    const float* inChunk[kPhysInputs];
+    float* outChunk[kPhysOutputs];
+    for (int c = 0; c < kPhysInputs; ++c) inChunk[c] = in && in[c] ? in[c] + offset : nullptr;
+    for (int o = 0; o < kPhysOutputs; ++o) outChunk[o] = out && out[o] ? out[o] + offset : nullptr;
     processBlock(inChunk, outChunk, n);
     offset += n;
   }
 }
 
 void Mixer::processBlock(const float* const* in, float* const* out, int n) {
-  float* buf = chBuf_.data();
-  std::fill_n(mixL_.data(), n, 0.0f);
-  std::fill_n(mixR_.data(), n, 0.0f);
-  std::fill_n(pfl_.data(), n, 0.0f);
-  for (auto& a : auxMix_) std::fill_n(a.data(), n, 0.0f);
+  for (auto& bus : buses_) {
+    std::fill_n(bus.l.data(), n, 0.0f);
+    std::fill_n(bus.r.data(), n, 0.0f);
+  }
+  std::fill_n(paflL_.data(), n, 0.0f);
+  std::fill_n(paflR_.data(), n, 0.0f);
 
-  // DCA gains for this block.
   std::array<float, kDcas> dcaGain{};
-  for (int d = 0; d < kDcas; ++d)
-    dcaGain[d] = dcaBus_[d].mute->on() ? 0.0f : dbToLin(dcaBus_[d].fader->get());
+  for (int d = 0; d < kDcas; ++d) dcaGain[d] = dcaMute_[d]->on() ? 0.0f : dbToLin(dcaFader_[d]->get());
+  std::array<bool, kMuteGroups> mgMuted{};
+  for (int m = 0; m < kMuteGroups; ++m) mgMuted[m] = mgMute_[m]->on();
 
-  bool anySolo = false;
-  for (auto& ch : ch_) anySolo = anySolo || ch.p.solo->on();
+  anyPafl_ = false;
+  for (auto& ch : inputs_) anyPafl_ = anyPafl_ || ch.pafl->on();
+  for (auto& bus : buses_) anyPafl_ = anyPafl_ || bus.pafl->on();
 
-  for (int c = 0; c < kChannels; ++c) {
-    Channel& ch = ch_[c];
-    const ChannelParams& p = ch.p;
-    updateChannelDsp(ch);
-
-    // Input stage: trim + polarity.
-    if (in[c]) std::memcpy(buf, in[c], sizeof(float) * n);
-    else std::fill_n(buf, n, 0.0f);
-    ch.trimGain.target = dbToLin(p.trim->get()) * (p.polarity->on() ? -1.0f : 1.0f);
-    ch.trimGain.apply(buf, n);
-    atomicMax(mChIn_[c], peakOf(buf, n));
-
-    // Processing: HPF -> gate -> EQ -> compressor (Qu-style order).
-    if (p.hpfOn->on()) ch.hpf.processBlock(buf, n);
-    if (p.gateOn->on()) {
-      ch.gate.process(buf, n);
-      mChGate_[c].store(ch.gate.isOpen(), std::memory_order_relaxed);
-    } else {
-      mChGate_[c].store(true, std::memory_order_relaxed);
+  // 1. Input channels (load from the physical inputs).
+  for (size_t i = 0; i < inputs_.size(); ++i) {
+    Input& ch = inputs_[i];
+    if (ch.def.kind == InputKind::FxReturn) continue;
+    const float* srcL = in[ch.def.physIn];
+    if (srcL) std::memcpy(ch.l.data(), srcL, sizeof(float) * n);
+    else std::fill_n(ch.l.data(), n, 0.0f);
+    if (ch.def.stereo) {
+      const float* srcR = in[ch.def.physIn + 1];
+      if (srcR) std::memcpy(ch.r.data(), srcR, sizeof(float) * n);
+      else std::fill_n(ch.r.data(), n, 0.0f);
     }
-    if (p.eqOn->on())
-      for (auto& band : ch.eq) band.processBlock(buf, n);
-    if (p.compOn->on()) {
-      ch.comp.process(buf, n);
-      atomicMax(mChGr_[c], ch.comp.takeGainReduction());
-    }
-
-    // PFL taps the pre-fader signal and ignores mute (so you can check a muted source).
-    if (p.solo->on())
-      for (int i = 0; i < n; ++i) pfl_[i] += buf[i];
-
-    float dca = 1.0f;
-    for (int d = 0; d < kDcas; ++d)
-      if (p.dca[d]->on()) dca *= dcaGain[d];
-    const float muteGain = p.mute->on() ? 0.0f : 1.0f;
-    const float post = dbToLin(p.fader->get()) * muteGain * dca;
-    ch.postGain = post;
-
-    for (int a = 0; a < kAuxes; ++a) {
-      const float send = dbToLin(p.auxSend[a]->get());
-      ch.aux[a].target = send * (p.auxPre[a]->on() ? muteGain : post);
-      if (!ch.aux[a].silent()) ch.aux[a].mixInto(buf, auxMix_[a].data(), n);
-    }
-
-    // Constant-power pan (-3 dB at centre).
-    const float angle = static_cast<float>((p.pan->get() + 1.0f) * kPi / 4.0);
-    const float assign = p.mainAssign->on() ? post : 0.0f;
-    ch.mainL.target = std::cos(angle) * assign;
-    ch.mainR.target = std::sin(angle) * assign;
-    if (!ch.mainL.silent()) ch.mainL.mixInto(buf, mixL_.data(), n);
-    if (!ch.mainR.silent()) ch.mainR.mixInto(buf, mixR_.data(), n);
-
-    atomicMax(mChOut_[c], peakOf(buf, n) * post);
+    processInput(ch, static_cast<int>(i), n, dcaGain, mgMuted);
   }
 
-  // Bus masters.
-  const float mainGain = main_.mute->on() ? 0.0f : dbToLin(main_.fader->get());
-  mainBusL_.target = mainGain;
-  mainBusR_.target = mainGain;
-  mainBusL_.apply(mixL_.data(), n);
-  mainBusR_.apply(mixR_.data(), n);
-  for (int a = 0; a < kAuxes; ++a) {
-    auxBusGain_[a].target = auxBus_[a].mute->on() ? 0.0f : dbToLin(auxBus_[a].fader->get());
-    auxBusGain_[a].apply(auxMix_[a].data(), n);
+  // 2. FX sends -> engines -> FX return channels.
+  for (int f = 0; f < kFxUnits; ++f) {
+    Bus& send = buses_[kBusFx0 + f];
+    processBus(send, kBusFx0 + f, n);
+    fx_[f].process(send.l.data(), fxRetL_[f].data(), fxRetR_[f].data(), n);
+  }
+  for (size_t i = 0; i < inputs_.size(); ++i) {
+    Input& ch = inputs_[i];
+    if (ch.def.kind != InputKind::FxReturn) continue;
+    std::memcpy(ch.l.data(), fxRetL_[ch.def.index].data(), sizeof(float) * n);
+    std::memcpy(ch.r.data(), fxRetR_[ch.def.index].data(), sizeof(float) * n);
+    processInput(ch, static_cast<int>(i), n, dcaGain, mgMuted);
   }
 
-  // Outputs. PFL follows main when nothing is soloed.
-  const float* sources[kOutputs];
-  sources[kOutMainL] = mixL_.data();
-  sources[kOutMainR] = mixR_.data();
-  for (int a = 0; a < kAuxes; ++a) sources[kOutAux1 + a] = auxMix_[a].data();
-  sources[kOutPflL] = anySolo ? pfl_.data() : mixL_.data();
-  sources[kOutPflR] = anySolo ? pfl_.data() : mixR_.data();
-  for (int o = 0; o < kOutputs; ++o) {
-    if (out[o]) std::memcpy(out[o], sources[o], sizeof(float) * n);
-    atomicMax(mOut_[o], peakOf(sources[o], n));
+  // 3. Groups (they feed LR), then LR and the mixes.
+  for (int g = 0; g < kGroups; ++g) processBus(buses_[kBusGrp0 + g], kBusGrp0 + g, n);
+  processBus(buses_[kBusLR], kBusLR, n);
+  for (int m = 0; m < kMixes; ++m) processBus(buses_[kBusMix0 + m], kBusMix0 + m, n);
+
+  // 4. Matrices, fed post-fader from LR, mixes and groups.
+  for (int x = 0; x < kMatrices; ++x) {
+    Bus& mtx = buses_[kBusMtx0 + x];
+    for (int s = 0; s < kMatrixSources; ++s) {
+      const int srcIdx = s == 0 ? kBusLR : s <= kMixes ? kBusMix0 + s - 1 : kBusGrp0 + s - 1 - kMixes;
+      const Bus& src = buses_[srcIdx];
+      const float g = dbToLin(mtx.mtxLevel[s]->get());
+      routeInto(mtx.mtxSend[s].a, mtx.mtxSend[s].b, src.l.data(), src.def.stereo ? src.r.data() : nullptr,
+                mtx.l.data(), mtx.r.data(), g, g, n);
+    }
+    processBus(mtx, kBusMtx0 + x, n);
+  }
+
+  // 5. PAFL follows LR when nothing is selected, so the engineer's headphones are never dead.
+  if (!anyPafl_) {
+    std::memcpy(paflL_.data(), buses_[kBusLR].l.data(), sizeof(float) * n);
+    std::memcpy(paflR_.data(), buses_[kBusLR].r.data(), sizeof(float) * n);
+  }
+  atomicMax(paflMeterL_, peakOf(paflL_.data(), n));
+  atomicMax(paflMeterR_, peakOf(paflR_.data(), n));
+
+  // 6. Output patch.
+  const auto& sources = outputSources();
+  for (int o = 0; o < kPhysOutputs; ++o) {
+    if (!out[o]) continue;
+    const int idx = std::clamp(outSrc_[o]->index(), 0, static_cast<int>(sources.size()) - 1);
+    const OutputSource& s = sources[idx];
+    const float* src = silence_.data();
+    switch (s.kind) {
+      case OutputSource::Bus: {
+        const Bus& bus = buses_[s.index];
+        src = s.side == 1 && bus.def.stereo ? bus.r.data() : bus.l.data();
+        break;
+      }
+      case OutputSource::Pafl: src = s.side ? paflR_.data() : paflL_.data(); break;
+      case OutputSource::FxReturn: src = s.side ? fxRetR_[s.index].data() : fxRetL_[s.index].data(); break;
+      case OutputSource::Direct: src = direct_[s.index].data(); break;
+      case OutputSource::Off: break;
+    }
+    std::memcpy(out[o], src, sizeof(float) * n);
+  }
+}
+
+void Mixer::processInput(Input& ch, int idx, int n, const std::array<float, kDcas>& dcaGain,
+                         const std::array<bool, kMuteGroups>& mgMuted) {
+  float* l = ch.l.data();
+  float* r = ch.def.stereo ? ch.r.data() : nullptr;
+  const bool fxReturn = ch.def.kind == InputKind::FxReturn;
+
+  ch.dsp.processPreamp(l, r, n);
+  if (!fxReturn) {
+    std::memcpy(direct_[ch.def.physIn].data(), l, sizeof(float) * n);
+    if (r) std::memcpy(direct_[ch.def.physIn + 1].data(), r, sizeof(float) * n);
+  }
+  InMeter& meter = inMeters_[idx];
+  atomicMax(meter.in, peak2(l, r, n));
+
+  ch.dsp.processChain(l, r, n);
+  atomicMax(meter.gr, ch.dsp.takeGainReduction());
+  meter.gate.store(ch.dsp.gateOpen(), std::memory_order_relaxed);
+
+  // Mute: own mute, any assigned mute group, any assigned DCA that is muted.
+  bool muted = ch.mute->on();
+  float dca = 1.0f;
+  for (int m = 0; m < kMuteGroups; ++m) muted = muted || (ch.mg[m]->on() && mgMuted[m]);
+  for (int d = 0; d < kDcas; ++d) {
+    if (!ch.dca[d]->on()) continue;
+    if (dcaGain[d] == 0.0f) muted = true;
+    else dca *= dcaGain[d];
+  }
+  const float unmuted = muted ? 0.0f : 1.0f;
+  const float post = dbToLin(ch.fader->get()) * unmuted * dca;
+
+  // Mono sources pan with constant power; stereo sources use balance.
+  float pl, pr;
+  if (ch.def.stereo) balanceGains(ch.pan->get(), &pl, &pr);
+  else panGains(ch.pan->get(), &pl, &pr);
+  const float monoSum = r ? 0.5f : 1.0f;  // stereo into a mono destination: (L+R)/2
+
+  Bus& lr = buses_[kBusLR];
+  const float lrGain = ch.lr->on() ? post : 0.0f;
+  routeInto(ch.toLR.a, ch.toLR.b, l, r, lr.l.data(), lr.r.data(), lrGain * pl, lrGain * pr, n);
+
+  for (int m = 0; m < kMixes; ++m) {
+    Bus& mix = buses_[kBusMix0 + m];
+    const float g = dbToLin(ch.mixLevel[m]->get()) * (ch.mixPre[m]->on() ? unmuted : post);
+    if (mix.def.stereo)
+      routeInto(ch.toMix[m].a, ch.toMix[m].b, l, r, mix.l.data(), mix.r.data(), g * pl, g * pr, n);
+    else
+      routeInto(ch.toMix[m].a, ch.toMix[m].b, l, r, mix.l.data(), nullptr, g * monoSum, 0, n);
+  }
+  if (!fxReturn) {
+    for (int f = 0; f < kFxUnits; ++f) {
+      Bus& send = buses_[kBusFx0 + f];
+      const float g = dbToLin(ch.fxLevel[f]->get()) * (ch.fxPre[f]->on() ? unmuted : post);
+      routeInto(ch.toFx[f].a, ch.toFx[f].b, l, r, send.l.data(), nullptr, g * monoSum, 0, n);
+    }
+  }
+  for (int g = 0; g < kGroups; ++g) {
+    Bus& grp = buses_[kBusGrp0 + g];
+    const float gain = ch.grp[g]->on() ? post : 0.0f;
+    routeInto(ch.toGrp[g].a, ch.toGrp[g].b, l, r, grp.l.data(), grp.r.data(), gain * pl, gain * pr, n);
+  }
+
+  // PFL: pre-fader, and deliberately ignores mute so a muted source can be checked.
+  if (ch.pafl->on()) {
+    for (int i = 0; i < n; ++i) {
+      paflL_[i] += l[i];
+      paflR_[i] += r ? r[i] : l[i];
+    }
+  }
+  atomicMax(meter.out, peak2(l, r, n) * post);
+}
+
+void Mixer::processBus(Bus& bus, int idx, int n) {
+  float* l = bus.l.data();
+  float* r = bus.def.stereo ? bus.r.data() : nullptr;
+  bus.dsp.processChain(l, r, n);
+  BusMeter& meter = busMeters_[idx];
+  atomicMax(meter.gr, bus.dsp.takeGainReduction());
+
+  const float gain = bus.mute->on() ? 0.0f : dbToLin(bus.fader->get());
+  float bl = 1.0f, br = 1.0f;
+  if (bus.balance) balanceGains(bus.balance->get(), &bl, &br);
+  bus.gainL.target = gain * bl;
+  bus.gainL.apply(l, n);
+  if (r) {
+    bus.gainR.target = gain * br;
+    bus.gainR.apply(r, n);
+  }
+
+  atomicMax(meter.l, peakOf(l, n));
+  atomicMax(meter.r, peakOf(r ? r : l, n));
+
+  // AFL: post-fader.
+  if (bus.pafl->on()) {
+    for (int i = 0; i < n; ++i) {
+      paflL_[i] += l[i];
+      paflR_[i] += r ? r[i] : l[i];
+    }
+  }
+  if (bus.lr) {
+    Bus& lr = buses_[kBusLR];
+    const float g = bus.lr->on() ? 1.0f : 0.0f;
+    routeInto(bus.toLR.a, bus.toLR.b, l, r, lr.l.data(), lr.r.data(), g, g, n);
   }
 }
 
 MeterSnapshot Mixer::takeMeters() {
   MeterSnapshot s;
-  for (int c = 0; c < kChannels; ++c) {
-    s.chInDb[c] = linToDb(mChIn_[c].exchange(0.0f, std::memory_order_relaxed));
-    s.chOutDb[c] = linToDb(mChOut_[c].exchange(0.0f, std::memory_order_relaxed));
-    s.chGrDb[c] = mChGr_[c].exchange(0.0f, std::memory_order_relaxed);
-    s.chGateOpen[c] = mChGate_[c].load(std::memory_order_relaxed);
+  constexpr auto rl = std::memory_order_relaxed;
+  for (int i = 0; i < kInputStrips; ++i) {
+    s.inputs[i].inDb = linToDb(inMeters_[i].in.exchange(0.0f, rl));
+    s.inputs[i].outDb = linToDb(inMeters_[i].out.exchange(0.0f, rl));
+    s.inputs[i].grDb = inMeters_[i].gr.exchange(0.0f, rl);
+    s.inputs[i].gateOpen = inMeters_[i].gate.load(rl);
   }
-  for (int o = 0; o < kOutputs; ++o)
-    s.outDb[o] = linToDb(mOut_[o].exchange(0.0f, std::memory_order_relaxed));
+  for (int b = 0; b < kBuses; ++b) {
+    s.buses[b].lDb = linToDb(busMeters_[b].l.exchange(0.0f, rl));
+    s.buses[b].rDb = linToDb(busMeters_[b].r.exchange(0.0f, rl));
+    s.buses[b].grDb = busMeters_[b].gr.exchange(0.0f, rl);
+  }
+  s.paflLDb = linToDb(paflMeterL_.exchange(0.0f, rl));
+  s.paflRDb = linToDb(paflMeterR_.exchange(0.0f, rl));
   return s;
 }
 

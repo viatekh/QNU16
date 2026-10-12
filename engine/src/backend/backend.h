@@ -18,7 +18,7 @@ class AudioBackend {
 
 struct JackOptions {
   std::string clientName = "qnu16";
-  bool autoconnect = false;  // system:capture_N -> in_N, outputs -> system:playback_1..8
+  bool autoconnect = false;  // physical capture N -> in_N, out_N -> physical playback N
 };
 
 // Returns nullptr if the binary was built without JACK.

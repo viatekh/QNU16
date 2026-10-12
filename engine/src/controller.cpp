@@ -74,6 +74,7 @@ void Controller::handleLine(const std::string& line, Reply* reply) {
     reply->toSender.push_back(stateMessage());
   } else if (cmd == "info") {
     reply->toSender.push_back(infoMessage());
+    reply->toSender.push_back(metaMessage());
   } else if (cmd == "scene") {
     std::string sub, name;
     in >> sub;
@@ -108,13 +109,45 @@ void Controller::handleLine(const std::string& line, Reply* reply) {
 
 std::string Controller::infoMessage() const {
   std::ostringstream o;
-  o << "i {\"name\":\"QNU16\",\"version\":\"0.1.0\",\"channels\":" << kChannels
-    << ",\"auxes\":" << kAuxes << ",\"dcas\":" << kDcas << ",\"eqBands\":" << kEqBands
-    << ",\"sampleRate\":" << mixer_.sampleRate() << ",\"backend\":" << jsonString(backendName_)
-    << ",\"outputs\":[";
-  for (int i = 0; i < kOutputs; ++i) o << (i ? "," : "") << jsonString(outputName(i));
+  o << "i {\"name\":\"QNU16\",\"version\":\"0.2.0\",\"sampleRate\":" << mixer_.sampleRate()
+    << ",\"backend\":" << jsonString(backendName_) << ",\"physInputs\":" << kPhysInputs
+    << ",\"physOutputs\":" << kPhysOutputs << ",\"dcas\":" << kDcas
+    << ",\"muteGroups\":" << kMuteGroups << ",\"geqBands\":" << kGeqBands << ",\"inputs\":[";
+  const char* inputKinds[] = {"mono", "stereo", "fxret"};
+  for (size_t i = 0; i < inputDefs().size(); ++i) {
+    const InputDef& d = inputDefs()[i];
+    o << (i ? "," : "") << "{\"id\":" << jsonString(d.id) << ",\"name\":" << jsonString(d.name)
+      << ",\"kind\":\"" << inputKinds[static_cast<int>(d.kind)] << "\",\"stereo\":" << (d.stereo ? "true" : "false")
+      << "}";
+  }
+  o << "],\"buses\":[";
+  const char* busKinds[] = {"lr", "mix", "grp", "mtx", "fx"};
+  for (size_t i = 0; i < busDefs().size(); ++i) {
+    const BusDef& d = busDefs()[i];
+    o << (i ? "," : "") << "{\"id\":" << jsonString(d.id) << ",\"name\":" << jsonString(d.name)
+      << ",\"kind\":\"" << busKinds[static_cast<int>(d.kind)] << "\",\"stereo\":" << (d.stereo ? "true" : "false")
+      << "}";
+  }
+  o << "],\"outputSources\":[";
+  for (size_t i = 0; i < outputSources().size(); ++i) o << (i ? "," : "") << jsonString(outputSources()[i].name);
+  o << "],\"fxTypes\":[";
+  for (int t = 0; t < FxEngine::kNumTypes; ++t) o << (t ? "," : "") << jsonString(FxEngine::typeName(t));
   o << "]}";
   return o.str();
+}
+
+std::string Controller::metaMessage() const {
+  // "k <path> <min> <max> <default> <kind c|t|h> [unit]" for every parameter.
+  std::string out = "k";
+  out.reserve(reg_.all().size() * 48);
+  for (const auto& p : reg_.all()) {
+    const ParamInfo& info = p->info();
+    const char kind = info.kind == ParamKind::Toggle ? 't' : info.kind == ParamKind::Choice ? 'h' : 'c';
+    out += "\n" + info.path + " " + formatValue(info.min) + " " + formatValue(info.max) + " " +
+           formatValue(info.def) + " " + kind;
+    if (!info.unit.empty()) out += " " + info.unit;
+  }
+  return out;
 }
 
 std::string Controller::stateMessage() const {
@@ -131,17 +164,20 @@ std::string Controller::stateMessage() const {
 std::string Controller::meterMessage() {
   const MeterSnapshot s = mixer_.takeMeters();
   std::string out = "m ";
-  out.reserve(512);
-  for (int c = 0; c < kChannels; ++c) {
-    appendDb(&out, s.chInDb[c]); out += ',';
-    appendDb(&out, s.chOutDb[c]); out += ',';
-    appendDb(&out, s.chGrDb[c]); out += ',';
-    out += s.chGateOpen[c] ? "1," : "0,";
+  out.reserve(1024);
+  for (const auto& in : s.inputs) {
+    appendDb(&out, in.inDb); out += ',';
+    appendDb(&out, in.outDb); out += ',';
+    appendDb(&out, in.grDb); out += ',';
+    out += in.gateOpen ? "1," : "0,";
   }
-  for (int o = 0; o < kOutputs; ++o) {
-    appendDb(&out, s.outDb[o]);
-    if (o + 1 < kOutputs) out += ',';
+  for (const auto& bus : s.buses) {
+    appendDb(&out, bus.lDb); out += ',';
+    appendDb(&out, bus.rDb); out += ',';
+    appendDb(&out, bus.grDb); out += ',';
   }
+  appendDb(&out, s.paflLDb); out += ',';
+  appendDb(&out, s.paflRDb);
   return out;
 }
 

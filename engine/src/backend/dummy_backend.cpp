@@ -16,7 +16,7 @@ class SignalGenerator {
   explicit SignalGenerator(double sr) : sr_(sr) { phase_.fill(0.0); }
 
   void render(std::vector<std::vector<float>>& bufs, int n) {
-    for (int c = 0; c < kChannels; ++c) {
+    for (int c = 0; c < kPhysInputs; ++c) {
       float* out = bufs[c].data();
       const double freq = 55.0 * std::pow(2.0, c / 3.0);
       const double inc = 2.0 * kPi * freq / sr_;
@@ -46,7 +46,7 @@ class SignalGenerator {
   }
 
   double sr_;
-  std::array<double, kChannels> phase_;
+  std::array<double, kPhysInputs> phase_;
   uint64_t frame_ = 0;
   uint32_t seed_ = 12345;
 };
@@ -73,12 +73,12 @@ class DummyBackend : public AudioBackend {
  private:
   void loop(Mixer& mixer) {
     constexpr int kBlock = 256;
-    std::vector<std::vector<float>> in(kChannels, std::vector<float>(kBlock));
-    std::vector<std::vector<float>> out(kOutputs, std::vector<float>(kBlock));
-    const float* inPtr[kChannels];
-    float* outPtr[kOutputs];
-    for (int c = 0; c < kChannels; ++c) inPtr[c] = in[c].data();
-    for (int o = 0; o < kOutputs; ++o) outPtr[o] = out[o].data();
+    std::vector<std::vector<float>> in(kPhysInputs, std::vector<float>(kBlock));
+    std::vector<std::vector<float>> out(kPhysOutputs, std::vector<float>(kBlock));
+    const float* inPtr[kPhysInputs];
+    float* outPtr[kPhysOutputs];
+    for (int c = 0; c < kPhysInputs; ++c) inPtr[c] = in[c].data();
+    for (int o = 0; o < kPhysOutputs; ++o) outPtr[o] = out[o].data();
     SignalGenerator gen(sr_);
     const auto period = std::chrono::duration<double>(kBlock / sr_);
     auto next = std::chrono::steady_clock::now();

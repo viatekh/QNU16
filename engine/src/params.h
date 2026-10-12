@@ -10,7 +10,7 @@
 
 namespace qnu {
 
-enum class ParamKind { Continuous, Toggle };
+enum class ParamKind { Continuous, Toggle, Choice };  // Choice: integer index min..max
 
 struct ParamInfo {
   std::string path;
@@ -28,8 +28,9 @@ class Param {
 
   float get() const { return value_.load(std::memory_order_relaxed); }
   bool on() const { return get() >= 0.5f; }
+  int index() const { return static_cast<int>(get()); }
 
-  // Clamps (and for toggles, snaps to 0/1) then stores. Returns the stored value.
+  // Clamps (toggles snap to 0/1, choices round to an integer) then stores. Returns the stored value.
   float set(float v);
 
   const ParamInfo& info() const { return info_; }

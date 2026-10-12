@@ -239,6 +239,7 @@ void ControlServer::handleHttp(Client& c) {
         "Sec-WebSocket-Accept: " + ws::acceptKey(wsKey) + "\r\n\r\n";
     c.websocket = true;
     sendText(c, controller_.infoMessage());
+    sendText(c, controller_.metaMessage());
     sendText(c, controller_.stateMessage());
     sendText(c, controller_.sceneListMessage());
     if (!c.inBuf.empty()) handleWsData(c);

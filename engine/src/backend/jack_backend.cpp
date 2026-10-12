@@ -24,13 +24,14 @@ class JackBackend : public AudioBackend {
       *err = "cannot connect to JACK server (is jackd running?)";
       return false;
     }
-    for (int c = 0; c < kChannels; ++c) {
+    for (int c = 0; c < kPhysInputs; ++c) {
       const std::string n = "in_" + std::to_string(c + 1);
       in_[c] = jack_port_register(client_, n.c_str(), JACK_DEFAULT_AUDIO_TYPE, JackPortIsInput, 0);
     }
-    for (int o = 0; o < kOutputs; ++o)
-      out_[o] = jack_port_register(client_, outputName(o), JACK_DEFAULT_AUDIO_TYPE,
-                                   JackPortIsOutput, 0);
+    for (int o = 0; o < kPhysOutputs; ++o) {
+      const std::string n = "out_" + std::to_string(o + 1);
+      out_[o] = jack_port_register(client_, n.c_str(), JACK_DEFAULT_AUDIO_TYPE, JackPortIsOutput, 0);
+    }
 
     mixer.prepare(jack_get_sample_rate(client_));
     jack_set_process_callback(client_, &JackBackend::processCb, this);
@@ -56,11 +57,11 @@ class JackBackend : public AudioBackend {
  private:
   static int processCb(jack_nframes_t n, void* arg) {
     auto* self = static_cast<JackBackend*>(arg);
-    const float* in[kChannels];
-    float* out[kOutputs];
-    for (int c = 0; c < kChannels; ++c)
+    const float* in[kPhysInputs];
+    float* out[kPhysOutputs];
+    for (int c = 0; c < kPhysInputs; ++c)
       in[c] = static_cast<const float*>(jack_port_get_buffer(self->in_[c], n));
-    for (int o = 0; o < kOutputs; ++o)
+    for (int o = 0; o < kPhysOutputs; ++o)
       out[o] = static_cast<float*>(jack_port_get_buffer(self->out_[o], n));
     self->mixer_->process(in, out, static_cast<int>(n));
     return 0;
@@ -76,9 +77,9 @@ class JackBackend : public AudioBackend {
                                           JackPortIsPhysical | JackPortIsOutput);
     const char** playback = jack_get_ports(client_, nullptr, JACK_DEFAULT_AUDIO_TYPE,
                                            JackPortIsPhysical | JackPortIsInput);
-    for (int c = 0; capture && capture[c] && c < kChannels; ++c)
+    for (int c = 0; capture && capture[c] && c < kPhysInputs; ++c)
       jack_connect(client_, capture[c], jack_port_name(in_[c]));
-    for (int o = 0; playback && playback[o] && o < kOutputs; ++o)
+    for (int o = 0; playback && playback[o] && o < kPhysOutputs; ++o)
       jack_connect(client_, jack_port_name(out_[o]), playback[o]);
     if (capture) jack_free(capture);
     if (playback) jack_free(playback);
@@ -87,8 +88,8 @@ class JackBackend : public AudioBackend {
   JackOptions opt_;
   Mixer* mixer_ = nullptr;
   jack_client_t* client_ = nullptr;
-  jack_port_t* in_[kChannels] = {};
-  jack_port_t* out_[kOutputs] = {};
+  jack_port_t* in_[kPhysInputs] = {};
+  jack_port_t* out_[kPhysOutputs] = {};
   std::atomic<unsigned> xruns_{0};
 };
 

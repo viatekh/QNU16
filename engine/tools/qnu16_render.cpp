@@ -14,9 +14,10 @@ namespace {
 void usage() {
   std::printf(
       "usage: qnu16-render [-s scene-file] [--all-outputs] -o out.wav in1.wav [in2.wav ...]\n"
-      "  Input channels are assigned to mixer channels 1..16 in order across all files.\n"
-      "  Output is main L/R, or all %d outputs with --all-outputs.\n",
-      qnu::kOutputs);
+      "  Input channels feed the %d physical inputs in order across all files\n"
+      "  (1-16 = Ch 1-16, 17-22 = ST1-3 L/R).\n"
+      "  Output is physical outputs 1-2 (LR by default), or all %d with --all-outputs.\n",
+      qnu::kPhysInputs, qnu::kPhysOutputs);
 }
 
 }  // namespace
@@ -54,10 +55,10 @@ int main(int argc, char** argv) {
     }
     for (auto& c : f.channels) chans.push_back(std::move(c));
   }
-  if (chans.size() > qnu::kChannels) {
+  if (chans.size() > qnu::kPhysInputs) {
     std::fprintf(stderr, "warning: %zu input channels, only the first %d are used\n", chans.size(),
-                 qnu::kChannels);
-    chans.resize(qnu::kChannels);
+                 qnu::kPhysInputs);
+    chans.resize(qnu::kPhysInputs);
   }
   size_t frames = 0;
   for (auto& c : chans) frames = std::max(frames, c.size());
@@ -83,13 +84,13 @@ int main(int argc, char** argv) {
 
   qnu::AudioFile out;
   out.sampleRate = rate;
-  out.channels.assign(qnu::kOutputs, std::vector<float>(frames));
-  const float* in[qnu::kChannels] = {};
-  float* outp[qnu::kOutputs];
+  out.channels.assign(qnu::kPhysOutputs, std::vector<float>(frames));
+  const float* in[qnu::kPhysInputs] = {};
+  float* outp[qnu::kPhysOutputs];
   for (size_t pos = 0; pos < frames; pos += qnu::kMaxBlock) {
     const int n = static_cast<int>(std::min<size_t>(qnu::kMaxBlock, frames - pos));
     for (size_t c = 0; c < chans.size(); ++c) in[c] = chans[c].data() + pos;
-    for (int o = 0; o < qnu::kOutputs; ++o) outp[o] = out.channels[o].data() + pos;
+    for (int o = 0; o < qnu::kPhysOutputs; ++o) outp[o] = out.channels[o].data() + pos;
     mixer.process(in, outp, n);
   }
   if (!allOutputs) out.channels.resize(2);

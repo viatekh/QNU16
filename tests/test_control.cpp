@@ -108,8 +108,8 @@ TEST(scene_roundtrip) {
   Mixer m(reg);
   Labels labels(Mixer::labelKeys());
   reg.find("ch/5/eq/3/gain")->set(-4.5f);
-  reg.find("ch/16/aux/2/send")->set(-12.25f);
-  reg.find("main/fader")->set(-3);
+  reg.find("ch/16/mix/2/level")->set(-12.25f);
+  reg.find("lr/fader")->set(-3);
   labels.set("ch/5", "Vox");
   const std::string text = serializeScene(reg, labels);
 
@@ -171,13 +171,20 @@ TEST(controller_scene_save_load) {
 
 TEST(controller_info_state_meters) {
   Desk d(tempDir("info"));
-  CHECK(d.ctl.infoMessage().find("\"channels\":16") != std::string::npos);
+  const std::string info = d.ctl.infoMessage();
+  CHECK(info.find("{\"id\":\"st/1\",\"name\":\"ST 1\",\"kind\":\"stereo\",\"stereo\":true}") != std::string::npos);
+  CHECK(info.find("\"name\":\"Mix 9-10\"") != std::string::npos);
+  CHECK(info.find("\"fxTypes\":[\"Reverb\",\"Delay\",\"Chorus\",\"Flanger\"]") != std::string::npos);
+  const std::string meta = d.ctl.metaMessage();
+  CHECK(meta.find("\nch/1/fader -90 10 0 c dB\n") != std::string::npos);
+  CHECK(meta.find("\nch/1/mute 0 1 0 t\n") != std::string::npos);
+  CHECK(meta.find("\nfx/1/type 0 3 0 h\n") != std::string::npos);
   const std::string state = d.ctl.stateMessage();
   CHECK(state.find("p ch/16/fader 0") != std::string::npos);
   const std::string meters = d.ctl.meterMessage();
   CHECK(meters.rfind("m ", 0) == 0);
   const size_t commas = std::count(meters.begin(), meters.end(), ',');
-  CHECK(commas == static_cast<size_t>(kChannels * 4 + kOutputs - 1));
+  CHECK(commas == static_cast<size_t>(kInputStrips * 4 + kBuses * 3 + 1));
 }
 
 namespace {
@@ -251,10 +258,11 @@ TEST(server_http_and_websocket_end_to_end) {
   req = "GET /ws HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
         "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n";
   send(fd, req.data(), req.size(), 0);
-  resp = readUntil(fd, "p main/mute");
+  resp = readUntil(fd, "p out/18/src");
   CHECK(resp.rfind("HTTP/1.1 101", 0) == 0);
   CHECK(resp.find("s3pPLMBiTxaQ9kYGzzhZRbK+xOo=") != std::string::npos);
-  CHECK(resp.find("\"channels\":16") != std::string::npos);
+  CHECK(resp.find("\"inputs\":[") != std::string::npos);
+  CHECK(resp.find("\nch/1/fader -90 10 0 c dB") != std::string::npos);
 
   const std::string frame = ws::encodeMaskedFrame(ws::kText, "set ch/7/fader -12.5", 0x12345678);
   send(fd, frame.data(), frame.size(), 0);

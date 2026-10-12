@@ -24,7 +24,8 @@ class Controller {
   // One message may hold several newline-separated commands.
   Reply handle(const std::string& message);
 
-  std::string infoMessage() const;   // "i {json}"
+  std::string infoMessage() const;   // "i {json}": topology
+  std::string metaMessage() const;   // "k\n<path> <min> <max> <def> <kind> [unit]..." for every param
   std::string stateMessage() const;  // "p ..." and "l ..." lines for every param/label
   std::string meterMessage();        // "m v,v,v,..."
   std::string sceneListMessage() const;

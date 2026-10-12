@@ -9,6 +9,7 @@ float Param::set(float v) {
   if (!std::isfinite(v)) v = info_.def;
   v = std::clamp(v, info_.min, info_.max);
   if (info_.kind == ParamKind::Toggle) v = v >= 0.5f ? 1.0f : 0.0f;
+  if (info_.kind == ParamKind::Choice) v = std::round(v);
   value_.store(v, std::memory_order_relaxed);
   return v;
 }
