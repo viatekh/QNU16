@@ -17,24 +17,26 @@ real-time mixing engine with a web control surface.
                              tablet · phone · laptop (any browser, several at once)
 ```
 
-## Features (v0.1)
+## Features vs the Qu-16
 
-| | QNU16 v0.1 | Qu-16 |
+| | QNU16 v0.2 | Qu-16 |
 |---|---|---|
-| Mic inputs | 16 (with UMC1820 + ADA8200) | 16 |
-| Per-channel processing | Trim, polarity, HPF, gate, 4-band PEQ, compressor | Same, plus delay |
-| Mixes | Main L/R, 4 aux (pre/post per send), PFL | Main L/R, 4 mono + 3 stereo mixes |
-| DCAs / mute groups | 4 DCAs (with mute) | 4 DCAs, 4 mute groups |
+| Inputs | 16 mono + 3 stereo + 4 stereo FX returns | Same |
+| Mixes | LR, 4 mono + 3 stereo mixes, 4 stereo groups, 2 stereo matrices | Same |
+| Input processing | Gain, polarity, HPF, gate, 4-band PEQ (shelf/bell), compressor (peak/RMS), delay | Same, plus insert and ducker |
+| Master processing | PEQ, 28-band GEQ, compressor, delay | Same |
+| FX | 4 engines: reverb, delay, chorus, flanger | 4 engines, more types |
+| DCAs / mute groups | 4 / 4 | 4 / 4 |
+| Outputs | 18 patchable (buses, PAFL, FX returns, direct outs) | 12 XLR + 2 alt, plus USB |
+| Surface | SuperStrip, touchscreen pages, layers A/B/C, mix keys, sends on faders, master strip; any browser, several at once | Physical surface + iPad app |
 | Scenes | Unlimited, plain-text files | 100 |
-| Remote control | Any browser, multiple clients in sync, open protocol | iPad app |
-| Built-in FX | Not yet (roadmap) | 4 FX engines |
-| Multitrack recording | Not yet (roadmap; JACK makes it easy) | 18×2 USB |
-| Motorised faders | Via external MCU surface (roadmap) | 17 built-in |
-| Latency | ≈5 ms round trip | ≈1–2 ms |
+| Motorised faders | Via an external MCU surface (roadmap) | 17 built-in |
+| Multitrack recording | Not yet (roadmap) | 18×2 USB + Qu-Drive |
+| Latency | ≈ 5–7 ms round trip | ≈ 1–2 ms |
 | Price | **≈ £540** with 16 preamps | ≈ £2,000+ |
 
-The DSP is cheap. The full 16-channel worst case (every processor on, every send active) uses about
-**6% of one x86 core**. Run `qnu16-bench` on a Pi 5 to measure it there.
+The worst case (every processor on every channel and master, all sends, all four FX) uses about
+**14% of one x86 core**. Run `qnu16-bench` on a Pi 5 to measure it there.
 
 ## Quick start (no audio hardware needed)
 
@@ -62,24 +64,32 @@ See [docs/hardware.md](docs/hardware.md) for the parts list, output mapping, lat
 ./build/qnu16-render -s scenes/Gig.scene -o mix.wav drums.wav bass.wav vox.wav
 ```
 
-The input files' channels feed mixer channels 1–16 in order. The output is the main L/R mix, or
-all 8 outputs with `--all-outputs`.
+The input files' channels feed the 22 physical inputs in order (1–16 are Ch 1–16, 17–22 are ST1–3).
+The output is outputs 1–2 (LR with the default patch), or all 18 with `--all-outputs`.
 
 ## Using the surface
 
-- **MAIN / AUX 1–4** (top bar) choose what the faders control. In an aux layer, the faders become
-  that mix's sends ("sends on faders"), and **PRE** toggles pre/post-fader per channel.
-- **SEL** opens the channel processing panel: input/HPF/routing, gate, EQ with a live response
-  curve, compressor with gain reduction, and sends.
-- Tap a channel or bus name to rename it. Double-click a fader to set it to 0 dB. Shift-drag a
-  fader for fine control.
-- **STORE / RECALL** save and load scenes. Every connected device stays in sync.
+The layout follows the Qu-16:
+
+- **SuperStrip** (top left): knobs for the selected channel's gain, HPF, gate, 4-band EQ,
+  compressor and pan. Press **IN** to switch a section on.
+- **Screen** (top right): pages for processing (EQ graph with draggable bands, gate and compressor
+  curves, GEQ, delay), routing, FX, scenes, setup (output patch, names) and meters.
+- **Layers A / B / C** (bottom left): channels 1–16; ST1-3, FX returns, groups and DCAs; mix masters.
+- **Mix keys** (bottom right): LR shows the channel faders. A mix or FX key puts its sends on the
+  faders, with its master on the master strip. A group key turns the Sel keys into group-assign
+  keys. A matrix key turns the faders into matrix source levels. **MG1–4** are the mute-group masters.
+- Double-tap a strip name to rename it. Double-click a fader or knob to reset it. Shift-drag for
+  fine control.
 
 ## Repository layout
 
 ```
-engine/src/dsp/       biquad, gate, compressor (header-only, allocation-free)
-engine/src/mixer.*    16-channel mixer: signal flow, buses, DCAs, PFL, meters
+engine/src/dsp/       biquad, gate, compressor, delay, GEQ (header-only, allocation-free)
+engine/src/topology.* console layout (inputs, buses, output patch sources)
+engine/src/strip.*    processing chain shared by inputs and masters
+engine/src/fx.*       FX engines (reverb, delay, chorus, flanger)
+engine/src/mixer.*    signal flow: sends, groups, matrices, DCAs, mute groups, PAFL, meters
 engine/src/params.*   lock-free parameter registry and labels
 engine/src/scene.*    scene files
 engine/src/controller.*  text control protocol (docs/protocol.md)
@@ -93,13 +103,12 @@ tests/                unit and end-to-end tests
 
 ## Roadmap
 
-1. **v0.2:** FX engines (reverb, delay) on 2 internal FX buses, channel delay, mute groups, and
-   stereo aux pairs.
-2. **v0.3:** Mackie Control bridge for X-Touch motorised faders, and a MIDI learn function.
-3. **v0.4:** Multitrack record and playback (virtual soundcheck from the desk), plus USB-stick
-   scene export.
-4. **v1.0:** A custom I/O board (TDM codecs, for example CS42448 or AK4619, straight into the Pi's
-   I2S) to remove the USB interface and cut latency to about 1.5 ms.
+1. **v0.3:** Mackie Control bridge for X-Touch motorised faders, a custom fader layer, copy/paste/reset
+   keys, and an RTA on the EQ screens.
+2. **v0.4:** Multitrack record and playback (virtual soundcheck from the desk), USB-stick scene
+   export, and more FX types (gated reverb, ADT, phaser).
+3. **v1.0:** A custom I/O board (TDM codecs straight into the Pi's I2S) to remove the USB interface
+   and cut latency to about 1.5 ms.
 
 ## License
 

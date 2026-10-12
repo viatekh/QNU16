@@ -6,8 +6,12 @@
 - The audio thread (`Mixer::process`) must never allocate, lock or do I/O. Parameters are
   `std::atomic<float>` in `ParamRegistry`, which is fixed after the `Mixer` constructor. Meters
   go back to the UI through atomics.
-- To add a parameter, register it in the `Mixer` constructor (`engine/src/mixer.cpp`), mirror its
-  range in `meta()` in `ui/app.js`, and document it in `docs/protocol.md`.
+- Topology lives in `engine/src/topology.*`. Per-channel processing parameters are registered by
+  `ChannelDsp::init` (`engine/src/strip.cpp`), routing and global ones in the `Mixer` constructor,
+  and FX ones in `FxEngine::init`. The UI receives every parameter's range from the engine (the `k`
+  message), so it needs no mirror. Document new paths in `docs/protocol.md`.
+- `ui/app.js` mirrors the Qu-16 layout: SuperStrip, screen pages, layers, mix keys, master strip.
+  Views rebuild under a watcher tag (`withTag`), so handlers from old views are pruned.
 - The UI is plain JS with no build step. Keep it dependency-free so it works offline on the
   desk's own Wi-Fi.
 - New DSP needs a test in `tests/` that measures the real signal (as the sine-through tests do),

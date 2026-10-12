@@ -3,40 +3,48 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
-  <meta name="theme-color" content="#111317">
+  <meta name="theme-color" content="#16181c">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <title>QNU16</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <header class="topbar">
-    <div class="brand">QNU<span>16</span></div>
-    <div class="conn" id="conn" title="Disconnected"><i></i><span id="connText">offline</span></div>
-    <nav class="mixsel" id="mixSel" aria-label="Fader layer"></nav>
-    <div class="spacer"></div>
-    <button class="btn warn" id="clearSolo" hidden>CLEAR PFL</button>
-    <div class="scenes">
-      <select id="sceneList" aria-label="Scene"></select>
-      <button class="btn" id="sceneLoad">RECALL</button>
-      <button class="btn" id="sceneSave">STORE</button>
-    </div>
-  </header>
+  <div class="console">
+    <!-- SuperStrip: the selected channel's processing on dedicated knobs -->
+    <section class="superstrip" id="superstrip" aria-label="SuperStrip"></section>
 
-  <main class="desk">
-    <section class="strips" id="strips" aria-label="Channels"></section>
-    <section class="masters" id="masters" aria-label="Masters"></section>
-  </main>
+    <!-- Touchscreen -->
+    <section class="screen" aria-label="Screen">
+      <header class="screen-bar">
+        <div class="brand">QNU<span>16</span></div>
+        <div class="sel-name" id="selName">Ch 1</div>
+        <nav class="screen-tabs" id="screenTabs"></nav>
+        <div class="conn" id="conn" title="Disconnected"><i></i></div>
+      </header>
+      <div class="screen-sub" id="screenSub"></div>
+      <div class="screen-body" id="screenBody"></div>
+      <footer class="screen-foot">
+        <span id="sceneName">No scene</span>
+        <span id="engineInfo"></span>
+      </footer>
+    </section>
 
-  <section class="detail" id="detail" hidden>
-    <header class="detail-head">
-      <h2 id="detailTitle">CH 1</h2>
-      <div class="detail-tabs" id="detailTabs"></div>
-      <button class="btn" id="detailClose" aria-label="Close">✕</button>
-    </header>
-    <div class="detail-body" id="detailBody"></div>
-  </section>
+    <!-- Fader bank -->
+    <section class="bank" aria-label="Channels">
+      <div class="layers" id="layers"></div>
+      <div class="strips" id="strips"></div>
+    </section>
 
+    <!-- Mix keys, mute groups and master strip -->
+    <section class="right" aria-label="Masters">
+      <div class="mixkeys">
+        <div class="keygrid" id="mixKeys"></div>
+        <div class="mg" id="muteGroups"></div>
+      </div>
+      <div class="master" id="master"></div>
+    </section>
+  </div>
   <script src="app.js"></script>
 </body>
 </html>

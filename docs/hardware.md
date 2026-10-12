@@ -25,13 +25,23 @@ An Allen & Heath Qu-16 costs about £2,000+.
 | Behringer X-Touch Compact (16 motorised faders) | ~£300 | Planned |
 | Any MIDI fader box (e.g. Korg nanoKONTROL2) | ~£50 | Planned |
 
-## Output mapping
+## I/O mapping
 
-| JACK port | UMC1820 output | Typical use |
+The UMC1820 has 8 inputs and 10 outputs of its own. The ADA8200 adds 8 inputs and 8 outputs over
+ADAT, giving 16 in and 18 out. JACK ports are `qnu16:in_1..22` and `qnu16:out_1..18`.
+
+| Mixer | Physical | Notes |
 |---|---|---|
-| `main_L`, `main_R` | 1–2 | FOH (front-of-house) amps or speakers |
-| `aux_1` … `aux_4` | 3–6 | Monitor wedges or in-ears |
-| `pfl_L`, `pfl_R` | 7–8 | Engineer's headphones (PFL, or the main mix when nothing is soloed) |
+| Ch 1–8 | UMC1820 mic inputs 1–8 | |
+| Ch 9–16 | ADA8200 mic inputs 1–8 (ADAT) | |
+| ST1–3 (in 17–22) | Any spare inputs, or JACK clients (laptop playback, a streaming PC) | Patch in JACK |
+| Out 1–2 | LR | FOH (front-of-house) |
+| Out 3–12 | Mix 1–10 | Wedges and in-ears |
+| Out 13–16 | Matrix 1–4 | Delay speakers, record feed, broadcast |
+| Out 17–18 | PAFL | Engineer's headphones |
+
+Every output is re-patchable in **SETUP → OUTPUT PATCH**. Sources include direct outs
+(post-gain) for multitrack recording.
 
 ## Latency budget (48 kHz)
 
