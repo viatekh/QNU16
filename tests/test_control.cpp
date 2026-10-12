@@ -290,6 +290,27 @@ TEST(controller_pafl_autocancel_and_amm) {
   CHECK(d.reg.find("ch/7/fader")->get() == 0.0f);
 }
 
+TEST(controller_user_libraries) {
+  const std::string dir = tempDir("lib");
+  Desk d(dir + "/scenes");
+  LibraryStore libs(dir + "/libs");
+  d.ctl.setLibraries(&libs);
+  auto r = d.ctl.handle("lib store 0 peq Kick Deep|eq/1/freq=60,eq/1/gain=4.5,hpf/on=1");
+  CHECK(r.toSender.empty());
+  CHECK(r.broadcast.size() == 1 && r.broadcast[0] == "b\n1 peq Kick Deep");
+  r = d.ctl.handle("lib get 1");
+  CHECK(r.toSender.size() == 1 && r.toSender[0] == "B 1 peq Kick Deep|eq/1/freq=60,eq/1/gain=4.5,hpf/on=1");
+  d.ctl.handle("lib store 0 comp Vox Squash|comp/ratio=4");
+  r = d.ctl.handle("lib name 1 Kick Jazz");
+  CHECK(r.broadcast.back() == "b\n1 peq Kick Jazz\n2 comp Vox Squash");
+  r = d.ctl.handle("lib delete 1");
+  CHECK(r.broadcast.back() == "b\n2 comp Vox Squash");
+  r = d.ctl.handle("lib store 0 bogus X|a=1");
+  CHECK(r.toSender.size() == 1);
+  r = d.ctl.handle("lib store 0 peq X|eq/1/freq=1;rm -rf");
+  CHECK(r.toSender.size() == 1);
+}
+
 TEST(controller_info_state_meters) {
   Desk d(tempDir("info"));
   const std::string info = d.ctl.infoMessage();

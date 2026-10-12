@@ -33,11 +33,15 @@ class Controller {
   std::string driveMessage() const;  // "d <state> <mode> <seconds> <length> <dropouts> <file>"
   std::string driveListMessage() const;  // "q\n<name>..." recordings on the drive
   void setDrive(Recorder* r, Player* p) { recorder_ = r; player_ = p; }
+  void setLibraries(LibraryStore* l) { libraries_ = l; }
+  std::string libraryListMessage() const;  // "b\n<n> <type> <name>..."
+
   std::string sceneListMessage() const;
 
  private:
   void handleLine(const std::string& line, Reply* reply);
   void handleScene(std::istringstream& in, Reply* reply);
+  void handleLibrary(std::istringstream& in, Reply* reply);
   // Sets a parameter and everything that follows from it on the Qu: linked channels, PAFL
   // auto-cancel, the AMM opening its faders. Broadcasts every change.
   void setParam(Param* p, float v, Reply* reply);
@@ -52,6 +56,7 @@ class Controller {
   std::string backendName_;
   Recorder* recorder_ = nullptr;
   Player* player_ = nullptr;
+  LibraryStore* libraries_ = nullptr;
   int currentScene_ = 0;
   std::array<float, kAmmChannels> ammDb_{};
 };

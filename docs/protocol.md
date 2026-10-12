@@ -27,6 +27,10 @@ the "0" LED on the strip meters. Meters and the RTA are in dBFS.
 | `play <name>` | Play a recording (`QU-STnnn.WAV` or `QU-MTnnn`) back. |
 | `rec stop` / `play stop` | Stop the transport. |
 | `drive list` | Request the recordings on the drive (`q`). |
+| `lib list` | Request the user libraries (`b`). |
+| `lib store <n> <type> <name>\|<values>` | Store a user library in slot *n* (1–128, or 0 for the first free slot). Type is `peq`, `geq`, `gate`, `comp`, `channel` or `fx`. Values are `suffix=value` pairs separated by commas, relative to a channel (`eq/1/freq=100`) or an FX (`rev/decay=2.5`). The client applies them on recall. |
+| `lib get <n>` | Request a library's values (`B`). |
+| `lib name <n> <name>` / `lib delete <n>` | Rename or delete a user library. |
 
 ## Engine → client
 
@@ -42,9 +46,11 @@ the "0" LED on the strip meters. Meters and the RTA are in dBFS.
 | `r v,…` | RTA, sent every 50 ms: 31 third-octave bands, 20 Hz – 20 kHz, in dBFS. It analyses the PAFL signal. |
 | `d <state> <mode> <seconds> <length> <dropouts> <file>` | Qu-Drive status: `rec`, `play` or `stop`; `multi` or `stereo`; elapsed and total seconds. Sent on connect, every 50 ms while running, and once when it stops. |
 | `q\n<name>…` | Recordings on the drive. |
+| `b\n<n> <type> <name>…` | User libraries. |
+| `B <n> <type> <name>\|<values>` | One library's values, in reply to `lib get`. |
 | `e <text>` | An error. It goes only to the client that caused it. |
 
-On connect, the engine sends `i`, `k`, a full `p`/`l` dump, `s`, `d` and `q`.
+On connect, the engine sends `i`, `k`, a full `p`/`l` dump, `s`, `d`, `q` and `b`.
 
 ## Topology (matches the Qu-16)
 

@@ -23,6 +23,7 @@ sudo -u "$USER_NAME" "$REPO/build/qnu16-tests"
 cmake --install "$REPO/build" --prefix "$PREFIX"
 install -d -o "$USER_NAME" -g "$USER_NAME" /var/lib/qnu16/scenes
 install -d -o "$USER_NAME" -g "$USER_NAME" /var/lib/qnu16/drive
+install -d -o "$USER_NAME" -g "$USER_NAME" /var/lib/qnu16/libraries
 
 echo "==> Realtime permissions"
 usermod -aG audio "$USER_NAME"

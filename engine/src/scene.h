@@ -63,4 +63,31 @@ class SceneStore {
   std::string dir_;
 };
 
+// User libraries (PEQ, GEQ, Gate, Comp, Channel, FX), up to 128, NNN.lib in a directory. A library
+// is a type, a name and parameter values relative to a channel ("eq/1/freq") or an FX ("rev/decay").
+// The client applies them; the engine only stores them.
+struct LibraryEntry {
+  int number = 0;
+  std::string type, name;
+  std::string values;  // "suffix=value,suffix=value,..."
+};
+constexpr int kLibraryCount = 128;
+
+class LibraryStore {
+ public:
+  explicit LibraryStore(std::string dir) : dir_(std::move(dir)) {}
+
+  static bool validType(const std::string& t);
+  static bool validValues(const std::string& v);
+  // number 0 = the first free slot. Returns the slot, or 0 on error.
+  int store(int number, const LibraryEntry& e, std::string* err) const;
+  bool load(int number, LibraryEntry* e) const;
+  bool remove(int number) const;
+  std::vector<LibraryEntry> list() const;  // without values
+
+ private:
+  std::string pathFor(int number) const;
+  std::string dir_;
+};
+
 }  // namespace qnu

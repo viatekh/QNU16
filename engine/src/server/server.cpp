@@ -254,6 +254,7 @@ void ControlServer::handleHttp(Client& c) {
     sendText(c, controller_.sceneListMessage());
     sendText(c, controller_.driveMessage());
     sendText(c, controller_.driveListMessage());
+    sendText(c, controller_.libraryListMessage());
     if (!c.inBuf.empty()) handleWsData(c);
     return;
   }

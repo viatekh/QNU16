@@ -276,4 +276,89 @@ std::vector<SceneInfo> SceneStore::list() const {
   return out;
 }
 
+// ---- User libraries ----
+
+bool LibraryStore::validType(const std::string& t) {
+  return t == "peq" || t == "geq" || t == "gate" || t == "comp" || t == "channel" || t == "fx";
+}
+
+bool LibraryStore::validValues(const std::string& v) {
+  return std::all_of(v.begin(), v.end(), [](char c) {
+    return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '/' || c == '=' || c == ',' ||
+           c == '.' || c == '-' || c == 'e' || c == '+';
+  });
+}
+
+std::string LibraryStore::pathFor(int number) const {
+  char buf[16];
+  std::snprintf(buf, sizeof(buf), "/%03d.lib", number);
+  return dir_ + buf;
+}
+
+int LibraryStore::store(int number, const LibraryEntry& e, std::string* err) const {
+  if (!validType(e.type) || !validValues(e.values) || e.name.empty()) {
+    *err = "invalid library";
+    return 0;
+  }
+  if (number == 0) {
+    for (int n = 1; n <= kLibraryCount && !number; ++n)
+      if (!fs::exists(pathFor(n))) number = n;
+    if (!number) {
+      *err = "the library is full (128)";
+      return 0;
+    }
+  }
+  if (number < 1 || number > kLibraryCount) {
+    *err = "library number must be 1-128";
+    return 0;
+  }
+  std::error_code ec;
+  fs::create_directories(dir_, ec);
+  const std::string tmp = pathFor(number) + ".tmp";
+  {
+    std::ofstream f(tmp, std::ios::binary | std::ios::trunc);
+    if (!f || !(f << "t " << e.type << "\nn " << e.name << "\nv " << e.values << "\n") || !f.flush()) {
+      *err = "cannot write " + tmp;
+      return 0;
+    }
+  }
+  fs::rename(tmp, pathFor(number), ec);
+  if (ec) {
+    *err = ec.message();
+    return 0;
+  }
+  return number;
+}
+
+bool LibraryStore::load(int number, LibraryEntry* e) const {
+  if (number < 1 || number > kLibraryCount) return false;
+  std::ifstream f(pathFor(number), std::ios::binary);
+  if (!f) return false;
+  e->number = number;
+  std::string line;
+  while (std::getline(f, line)) {
+    if (line.size() < 2 || line[1] != ' ') continue;
+    if (line[0] == 't') e->type = line.substr(2);
+    if (line[0] == 'n') e->name = line.substr(2);
+    if (line[0] == 'v') e->values = line.substr(2);
+  }
+  return validType(e->type);
+}
+
+bool LibraryStore::remove(int number) const {
+  std::error_code ec;
+  return number >= 1 && number <= kLibraryCount && fs::remove(pathFor(number), ec);
+}
+
+std::vector<LibraryEntry> LibraryStore::list() const {
+  std::vector<LibraryEntry> out;
+  for (int n = 1; n <= kLibraryCount; ++n) {
+    LibraryEntry e;
+    if (!load(n, &e)) continue;
+    e.values.clear();
+    out.push_back(std::move(e));
+  }
+  return out;
+}
+
 }  // namespace qnu

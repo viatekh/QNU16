@@ -185,6 +185,8 @@ void Controller::handleLine(const std::string& line, Reply* reply) {
     reply->toSender.push_back(metaMessage());
   } else if (cmd == "scene") {
     handleScene(in, reply);
+  } else if (cmd == "lib") {
+    handleLibrary(in, reply);
   } else if (cmd == "rec" || cmd == "play" || cmd == "drive") {
     std::string sub;
     in >> sub;
@@ -318,6 +320,73 @@ void Controller::handleScene(std::istringstream& in, Reply* reply) {
   } else {
     reply->toSender.push_back("e unknown scene command");
   }
+}
+
+// lib list | lib get <n> | lib store <n|0> <type> <name>|<values> | lib name <n> <name> |
+// lib delete <n>
+void Controller::handleLibrary(std::istringstream& in, Reply* reply) {
+  if (!libraries_) {
+    reply->toSender.push_back("e libraries are not available");
+    return;
+  }
+  std::string sub, err;
+  int number = 0;
+  in >> sub;
+  if (sub == "list") {
+    reply->toSender.push_back(libraryListMessage());
+    return;
+  }
+  in >> number;
+  LibraryEntry e;
+  if (sub == "get") {
+    if (!libraries_->load(number, &e)) {
+      reply->toSender.push_back("e no library " + std::to_string(number));
+      return;
+    }
+    reply->toSender.push_back("B " + std::to_string(number) + " " + e.type + " " + e.name + "|" + e.values);
+    return;
+  }
+  if (sub == "store") {
+    std::string rest;
+    in >> e.type;
+    std::getline(in >> std::ws, rest);
+    const size_t bar = rest.find('|');
+    if (bar == std::string::npos) {
+      reply->toSender.push_back("e bad library");
+      return;
+    }
+    e.name = Labels::sanitize(rest.substr(0, bar), kSceneNameChars);
+    e.values = rest.substr(bar + 1);
+    if (!libraries_->store(number, e, &err)) {
+      reply->toSender.push_back("e " + err);
+      return;
+    }
+  } else if (sub == "name") {
+    std::string name;
+    std::getline(in >> std::ws, name);
+    if (!libraries_->load(number, &e)) {
+      reply->toSender.push_back("e no library " + std::to_string(number));
+      return;
+    }
+    e.name = Labels::sanitize(name, kSceneNameChars);
+    if (!libraries_->store(number, e, &err)) {
+      reply->toSender.push_back("e " + err);
+      return;
+    }
+  } else if (sub == "delete") {
+    libraries_->remove(number);
+  } else {
+    reply->toSender.push_back("e unknown lib command");
+    return;
+  }
+  reply->broadcast.push_back(libraryListMessage());
+}
+
+std::string Controller::libraryListMessage() const {
+  std::string out = "b";
+  if (libraries_)
+    for (const auto& e : libraries_->list()) out += "\n" + std::to_string(e.number) + " " + e.type + " " + e.name;
+  return out;
 }
 
 std::string Controller::infoMessage() const {

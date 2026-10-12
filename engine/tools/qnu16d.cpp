@@ -29,7 +29,8 @@ void usage() {
       "  --ui DIR               web UI directory (default: ui)\n"
       "  --scenes DIR           scene directory (default: scenes)\n"
       "  --load N               recall scene N (1-100) at startup\n"
-      "  --recordings DIR       the Qu-Drive: where recordings are written and played from\n");
+      "  --recordings DIR       the Qu-Drive: where recordings are written and played from\n"
+      "  --libraries DIR        user processing and FX libraries (default: libraries)\n");
 }
 
 }  // namespace
@@ -39,6 +40,7 @@ int main(int argc, char** argv) {
   std::string scenesDir = "scenes";
   std::string loadScene;
   std::string recordingsDir = "recordings";
+  std::string librariesDir = "libraries";
   qnu::JackOptions jackOpt;
   qnu::ControlServer::Options srvOpt;
 
@@ -60,6 +62,7 @@ int main(int argc, char** argv) {
     else if (a == "--scenes") scenesDir = next();
     else if (a == "--load") loadScene = next();
     else if (a == "--recordings") recordingsDir = next();
+    else if (a == "--libraries") librariesDir = next();
     else if (a == "-h" || a == "--help") { usage(); return 0; }
     else { std::fprintf(stderr, "unknown option %s\n", a.c_str()); usage(); return 2; }
   }
@@ -104,6 +107,8 @@ int main(int argc, char** argv) {
 
   qnu::Controller controller(mixer, registry, labels, scenes, backend->name());
   controller.setDrive(&recorder, &player);
+  qnu::LibraryStore libraries(librariesDir);
+  controller.setLibraries(&libraries);
   qnu::ControlServer server(controller, srvOpt);
   if (!server.start(&err)) {
     std::fprintf(stderr, "control server failed: %s\n", err.c_str());
